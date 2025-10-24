@@ -1,0 +1,29 @@
+# Namespaces for microservices environments
+# Apply once: kubectl apply -f k8s/00-namespaces.yaml
+
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: dev
+  labels:
+    name: dev
+    environment: development
+    managed-by: jenkins
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: staging
+  labels:
+    name: staging
+    environment: staging
+    managed-by: jenkins
+---
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: prod
+  labels:
+    name: prod
+    environment: production
+    managed-by: jenkins

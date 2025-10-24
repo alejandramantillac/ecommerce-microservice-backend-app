@@ -1,0 +1,63 @@
+# ConfigMap for Production Environment
+# Apply: kubectl apply -f k8s/02-configmap-prod.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: micro-config
+  namespace: prod
+  labels:
+    environment: production
+    managed-by: jenkins
+data:
+  SPRING_PROFILES_ACTIVE: "dev"
+  
+  # JVM Options - Staging tiene más recursos
+  JAVA_OPTS: "-Xms384m -Xmx768m -XX:+UseG1GC -XX:MaxGCPauseMillis=200 -XX:+HeapDumpOnOutOfMemoryError"
+  
+  # Service Discovery (Eureka)
+  EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE: "http://service-discovery.staging.svc.cluster.local:8761/eureka/"
+  EUREKA_INSTANCE_PREFER_IP_ADDRESS: "true"
+  EUREKA_INSTANCE_HOSTNAME: "${spring.application.name}.staging.svc.cluster.local"
+  EUREKA_CLIENT_REGISTER_WITH_EUREKA: "true"
+  EUREKA_CLIENT_FETCH_REGISTRY: "true"
+  EUREKA_INSTANCE_LEASE_RENEWAL_INTERVAL_IN_SECONDS: "10"
+  EUREKA_INSTANCE_LEASE_EXPIRATION_DURATION_IN_SECONDS: "30"
+  
+  # Zipkin Tracing
+  SPRING_ZIPKIN_BASE_URL: "http://zipkin.staging.svc.cluster.local:9411/"
+  SPRING_SLEUTH_SAMPLER_PROBABILITY: "0.5"  # 50% sampling para staging
+  
+  # Service URLs (Internal Communication)
+  USER_SERVICE_HOST: "http://user-service.staging.svc.cluster.local:8700"
+  PRODUCT_SERVICE_HOST: "http://product-service.staging.svc.cluster.local:8500"
+  FAVOURITE_SERVICE_HOST: "http://favourite-service.staging.svc.cluster.local:8400"
+  PROXY_CLIENT_HOST: "http://proxy-client.staging.svc.cluster.local:8900"
+  API_GATEWAY_HOST: "http://api-gateway.staging.svc.cluster.local:8080"
+
+  # Logging - Producción con menos verbosidad
+  LOGGING_LEVEL_ROOT: "WARN"
+  LOGGING_LEVEL_COM_SELIMHORRI: "INFO"
+  LOGGING_PATTERN_CONSOLE: "%d{yyyy-MM-dd HH:mm:ss} [%thread] %-5level %logger{36} - %msg%n"
+  
+  # Management & Actuator - Seguridad reforzada
+  MANAGEMENT_ENDPOINTS_WEB_EXPOSURE_INCLUDE: "health,info,metrics,prometheus"
+  MANAGEMENT_ENDPOINT_HEALTH_SHOW_DETAILS: "never"  # No exponer detalles en prod
+  MANAGEMENT_METRICS_EXPORT_PROMETHEUS_ENABLED: "true"
+  MANAGEMENT_SERVER_PORT: "8081"  # Puerto separado para actuator
+  
+  # Resilience4J - Circuit Breaker configurado para producción
+  RESILIENCE4J_CIRCUITBREAKER_INSTANCES_DEFAULT_SLIDING_WINDOW_SIZE: "100"
+  RESILIENCE4J_CIRCUITBREAKER_INSTANCES_DEFAULT_FAILURE_RATE_THRESHOLD: "50"
+  RESILIENCE4J_CIRCUITBREAKER_INSTANCES_DEFAULT_WAIT_DURATION_IN_OPEN_STATE: "60000"
+  RESILIENCE4J_CIRCUITBREAKER_INSTANCES_DEFAULT_PERMITTED_NUMBER_OF_CALLS_IN_HALF_OPEN_STATE: "10"
+  
+  # Retry Configuration
+  RESILIENCE4J_RETRY_INSTANCES_DEFAULT_MAX_ATTEMPTS: "3"
+  RESILIENCE4J_RETRY_INSTANCES_DEFAULT_WAIT_DURATION: "1000"
+  
+  # Performance Tuning
+  SERVER_TOMCAT_THREADS_MAX: "200"
+  SERVER_TOMCAT_THREADS_MIN_SPARE: "10"
+  SERVER_TOMCAT_ACCEPT_COUNT: "100"
+  SERVER_TOMCAT_MAX_CONNECTIONS: "10000"

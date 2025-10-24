@@ -87,7 +87,12 @@ def deployToKubernetes(environment, namespace, registry, imageTag, changedServic
     echo "Namespace: ${namespace}"
     echo "========================================="
     
-    // Deploy core services first (in order)
+    // PASO 1: Apply ConfigMap first (services depend on it)
+    echo "Step 1: Applying ConfigMap for ${environment}..."
+    applyConfigMap(environment, namespace)
+    
+    // PASO 2: Deploy core services (in order)
+    echo "Step 2: Deploying core services..."
     def coreServices = commonVars.getCoreServices()
     for (service in coreServices) {
         if (changedServices.contains(service.name)) {
@@ -95,7 +100,8 @@ def deployToKubernetes(environment, namespace, registry, imageTag, changedServic
         }
     }
 
-    // Then deploy monitoring services
+    // PASO 3: Deploy monitoring services
+    echo "Step 3: Deploying monitoring services..."
     def monitoringServices = commonVars.getMonitoringServices()
     for (service in monitoringServices) {
         if (changedServices.contains(service.name)) {
@@ -103,7 +109,8 @@ def deployToKubernetes(environment, namespace, registry, imageTag, changedServic
         }
     }
     
-    // Finally deploy business services in parallel
+    // PASO 4: Deploy business services in parallel
+    echo "Step 4: Deploying business services..."
     def businessServices = commonVars.getBusinessServices()
     def businessDeployStages = [:]
     businessServices.each { service ->
@@ -113,8 +120,26 @@ def deployToKubernetes(environment, namespace, registry, imageTag, changedServic
             }
         }
     }
-    parallel businessDeployStages
     
+    if (!businessDeployStages.isEmpty()) {
+        parallel businessDeployStages
+    }
+}
+
+def applyConfigMap(environment, namespace) {
+    def configMapFile = "k8s/02-configmap-${environment}.yaml"
+    
+    echo "Applying ConfigMap from: ${configMapFile}"
+    
+    sh """
+        if [ -f "${configMapFile}" ]; then
+            kubectl --kubeconfig="\${KCFG}" apply -f "${configMapFile}"
+            echo "✓ ConfigMap applied successfully for ${environment}"
+        else
+            echo "⚠ Warning: ConfigMap file not found: ${configMapFile}"
+            echo "Services may fail if they depend on ConfigMap values"
+        fi
+    """
 }
 
 def deployService(serviceConfig, environment, namespace, registry, imageTag) {

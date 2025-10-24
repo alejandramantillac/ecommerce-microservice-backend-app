@@ -1,0 +1,188 @@
+# RBAC Configuration for Jenkins Deployer
+# Provides Jenkins with necessary permissions to deploy to staging and prod
+# Apply once: kubectl apply -f k8s/01-rbac.yaml
+
+---
+# ServiceAccount for Jenkins (in staging namespace)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins-deployer
+  namespace: staging
+  labels:
+    app: jenkins
+    component: deployer
+---
+# ServiceAccount for Jenkins (in prod namespace - if needed)
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: jenkins-deployer
+  namespace: prod
+  labels:
+    app: jenkins
+    component: deployer
+---
+# Role for staging namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jenkins-deployer-role
+  namespace: staging
+rules:
+  # Core API resources
+  - apiGroups: [""]
+    resources: 
+      - configmaps
+      - secrets
+      - services
+      - pods
+      - pods/log
+      - endpoints
+      - persistentvolumeclaims
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  # Apps API resources
+  - apiGroups: ["apps"]
+    resources: 
+      - deployments
+      - replicasets
+      - statefulsets
+      - daemonsets
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  # Autoscaling
+  - apiGroups: ["autoscaling"]
+    resources: 
+      - horizontalpodautoscalers
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  # Networking
+  - apiGroups: ["networking.k8s.io"]
+    resources: 
+      - ingresses
+      - networkpolicies
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  # Batch jobs
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+# Role for production namespace
+apiVersion: rbac.authorization.k8s.io/v1
+kind: Role
+metadata:
+  name: jenkins-deployer-role
+  namespace: prod
+rules:
+  # Core API resources
+  - apiGroups: [""]
+    resources: 
+      - configmaps
+      - secrets
+      - services
+      - pods
+      - pods/log
+      - endpoints
+      - persistentvolumeclaims
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  # Apps API resources
+  - apiGroups: ["apps"]
+    resources: 
+      - deployments
+      - replicasets
+      - statefulsets
+      - daemonsets
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  # Autoscaling
+  - apiGroups: ["autoscaling"]
+    resources: 
+      - horizontalpodautoscalers
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  # Networking
+  - apiGroups: ["networking.k8s.io"]
+    resources: 
+      - ingresses
+      - networkpolicies
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+  
+  # Batch jobs
+  - apiGroups: ["batch"]
+    resources:
+      - jobs
+      - cronjobs
+    verbs: ["get", "list", "watch", "create", "update", "patch", "delete"]
+---
+# RoleBinding for staging
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-deployer-binding
+  namespace: staging
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-deployer
+    namespace: staging
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jenkins-deployer-role
+---
+# RoleBinding for production
+apiVersion: rbac.authorization.k8s.io/v1
+kind: RoleBinding
+metadata:
+  name: jenkins-deployer-binding
+  namespace: prod
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-deployer
+    namespace: prod
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: Role
+  name: jenkins-deployer-role
+---
+# ClusterRole to read namespaces (optional, for cross-namespace operations)
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: jenkins-namespace-reader
+rules:
+  - apiGroups: [""]
+    resources: ["namespaces"]
+    verbs: ["get", "list", "watch"]
+---
+# ClusterRoleBinding for staging ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: jenkins-namespace-reader-staging
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: jenkins-namespace-reader
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-deployer
+    namespace: staging
+---
+# ClusterRoleBinding for prod ServiceAccount
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: jenkins-namespace-reader-prod
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: jenkins-namespace-reader
+subjects:
+  - kind: ServiceAccount
+    name: jenkins-deployer
+    namespace: prod

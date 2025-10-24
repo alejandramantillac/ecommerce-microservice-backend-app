@@ -51,46 +51,6 @@ def getServicesList() {
         ],
 
         [
-            name: 'order-service',
-            port: 8300,
-            type: 'business',
-            path: 'order-service',
-            exposure: [
-                dev: [type: 'ClusterIP'],
-                staging: [type: 'ClusterIP'],
-                prod: [type: 'ClusterIP']
-            ],
-            resources: [
-                memRequest: '256Mi',
-                memLimit: '384Mi',
-                cpuRequest: '250m',
-                cpuLimit: '500m'
-            ],
-            healthPath: '/order-service/actuator/health',
-            replicas: [dev: 1, staging: 1, prod: 2]
-        ],
-
-        [
-            name: 'shipping-service',
-            port: 8600,
-            type: 'business',
-            path: 'shipping-service',
-            exposure: [
-                dev: [type: 'ClusterIP'],
-                staging: [type: 'ClusterIP'],
-                prod: [type: 'ClusterIP']
-            ],
-            resources: [
-                memRequest: '256Mi',
-                memLimit: '384Mi',
-                cpuRequest: '250m',
-                cpuLimit: '500m'
-            ],
-            healthPath: '/shipping-service/actuator/health',
-            replicas: [dev: 1, staging: 1, prod: 2]
-        ],
-
-        [
             name: 'favourite-service',
             port: 8400,
             type: 'business',
@@ -274,9 +234,9 @@ def getKubeConfigCredential() {
 
 def getNamespaces() {
     return [
-        dev: 'microservices-dev',
-        staging: 'microservices-staging',
-        prod: 'microservices-prod'
+        dev: 'dev',
+        staging: 'staging',
+        prod: 'prod'
     ]
 }
 
