@@ -1,0 +1,55 @@
+services:
+  zipkin-container:
+    image: openzipkin/zipkin
+    ports:
+      - 9411:9411
+    networks:
+      - microservices_network
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:9411/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 40s
+
+  service-discovery-container:
+    build:
+      context: .
+      dockerfile: service-discovery/Dockerfile
+      args:
+        PROJECT_VERSION: 0.1.0
+        ENVIRONMENT: dev
+    ports:
+      - 8761:8761
+    networks:
+      - microservices_network
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - SPRING_ZIPKIN_BASE_URL=http://zipkin-container:9411
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=true
+      - EUREKA_INSTANCE_HOSTNAME=service-discovery-container
+
+  cloud-config-container:
+    build:
+      context: .
+      dockerfile: cloud-config/Dockerfile
+      args:
+        PROJECT_VERSION: 0.1.0
+        ENVIRONMENT: dev
+    ports:
+      - 9296:9296
+    networks:
+      - microservices_network
+    environment:
+      - SPRING_PROFILES_ACTIVE=dev
+      - SPRING_ZIPKIN_BASE_URL=http://zipkin-container:9411
+      - EUREKA_CLIENT_REGION=default
+      - EUREKA_CLIENT_AVAILABILITYZONES_DEFAULT=myzone
+      - EUREKA_CLIENT_SERVICEURL_MYZONE=http://service-discovery-container:8761/eureka
+      - EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE=http://service-discovery-container:8761/eureka/
+      - EUREKA_INSTANCE_PREFER_IP_ADDRESS=true
+      - EUREKA_INSTANCE_HOSTNAME=cloud-config-container
+
+networks:
+  microservices_network:
+    driver: bridge
