@@ -1,0 +1,98 @@
+#!/bin/bash
+# jenkins/scripts/deploy-service.sh
+# Script to deploy a single service to Kubernetes
+
+set -e
+
+SERVICE_NAME="$1"
+NAMESPACE="$2"
+REGISTRY="$3"
+IMAGE_TAG="$4"
+ENVIRONMENT="$5"  # dev, staging, prod
+SERVICE_CONFIG="$6"  # JSON string con la configuración del servicio
+
+if [ -z "$SERVICE_NAME" ] || [ -z "$NAMESPACE" ] || [ -z "$REGISTRY" ] || [ -z "$IMAGE_TAG" ] || [ -z "$ENVIRONMENT" ]; then
+    echo "Usage: $0 <service-name> <namespace> <registry> <image-tag> <environment> <service-config-json>"
+    exit 1
+fi
+
+echo "========================================="
+echo "Deploying ${SERVICE_NAME}"
+echo "Namespace: ${NAMESPACE}"
+echo "Environment: ${ENVIRONMENT}"
+echo "Image: ${REGISTRY}/${SERVICE_NAME}:${IMAGE_TAG}"
+echo "========================================="
+
+# Parse service config from JSON
+SERVICE_PORT=$(echo "$SERVICE_CONFIG" | jq -r '.port')
+SERVICE_TYPE=$(echo "$SERVICE_CONFIG" | jq -r '.serviceType')
+MEMORY_REQUEST=$(echo "$SERVICE_CONFIG" | jq -r '.resources.memRequest')
+MEMORY_LIMIT=$(echo "$SERVICE_CONFIG" | jq -r '.resources.memLimit')
+CPU_REQUEST=$(echo "$SERVICE_CONFIG" | jq -r '.resources.cpuRequest')
+CPU_LIMIT=$(echo "$SERVICE_CONFIG" | jq -r '.resources.cpuLimit')
+HEALTH_PATH=$(echo "$SERVICE_CONFIG" | jq -r '.healthPath')
+REPLICAS=$(echo "$SERVICE_CONFIG" | jq -r ".replicas.${ENVIRONMENT}")
+
+# Get NodePort if service type is NodePort
+if [ "$SERVICE_TYPE" = "NodePort" ]; then
+    NODE_PORT=$(echo "$SERVICE_CONFIG" | jq -r ".nodePorts.${ENVIRONMENT}")
+else
+    NODE_PORT=""
+fi
+
+echo "Configuration:"
+echo "  Port: ${SERVICE_PORT}"
+echo "  Type: ${SERVICE_TYPE}"
+echo "  Replicas: ${REPLICAS}"
+echo "  Resources: ${MEMORY_REQUEST}/${MEMORY_LIMIT} (mem), ${CPU_REQUEST}/${CPU_LIMIT} (cpu)"
+if [ -n "$NODE_PORT" ]; then
+    echo "  NodePort: ${NODE_PORT}"
+fi
+echo ""
+
+# Apply Kubernetes manifests using the generic template
+export SERVICE_NAME NAMESPACE REGISTRY IMAGE_TAG SERVICE_PORT SERVICE_TYPE NODE_PORT
+export MEMORY_REQUEST MEMORY_LIMIT CPU_REQUEST CPU_LIMIT REPLICAS HEALTH_PATH
+
+# Build the manifest
+if [ -n "$NODE_PORT" ] && [ "$SERVICE_TYPE" = "NodePort" ]; then
+    # With NodePort
+    sed -e "s|\${SERVICE_NAME}|${SERVICE_NAME}|g" \
+        -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
+        -e "s|\${REGISTRY}|${REGISTRY}|g" \
+        -e "s|\${IMAGE_TAG}|${IMAGE_TAG}|g" \
+        -e "s|\${SERVICE_PORT}|${SERVICE_PORT}|g" \
+        -e "s|\${SERVICE_TYPE}|${SERVICE_TYPE}|g" \
+        -e "s|\${MEMORY_REQUEST}|${MEMORY_REQUEST}|g" \
+        -e "s|\${MEMORY_LIMIT}|${MEMORY_LIMIT}|g" \
+        -e "s|\${CPU_REQUEST}|${CPU_REQUEST}|g" \
+        -e "s|\${CPU_LIMIT}|${CPU_LIMIT}|g" \
+        -e "s|\${REPLICAS}|${REPLICAS}|g" \
+        -e "s|\${HEALTH_PATH}|${HEALTH_PATH}|g" \
+        -e "s|    \${NODE_PORT:+nodePort: \${NODE_PORT}}|    nodePort: ${NODE_PORT}|g" \
+        "k8s/service-template.yaml" | kubectl --kubeconfig="$KCFG" apply -f -
+else
+    # Without NodePort (ClusterIP)
+    sed -e "s|\${SERVICE_NAME}|${SERVICE_NAME}|g" \
+        -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
+        -e "s|\${REGISTRY}|${REGISTRY}|g" \
+        -e "s|\${IMAGE_TAG}|${IMAGE_TAG}|g" \
+        -e "s|\${SERVICE_PORT}|${SERVICE_PORT}|g" \
+        -e "s|\${SERVICE_TYPE}|ClusterIP|g" \
+        -e "s|\${MEMORY_REQUEST}|${MEMORY_REQUEST}|g" \
+        -e "s|\${MEMORY_LIMIT}|${MEMORY_LIMIT}|g" \
+        -e "s|\${CPU_REQUEST}|${CPU_REQUEST}|g" \
+        -e "s|\${CPU_LIMIT}|${CPU_LIMIT}|g" \
+        -e "s|\${REPLICAS}|${REPLICAS}|g" \
+        -e "s|\${HEALTH_PATH}|${HEALTH_PATH}|g" \
+        -e "/\${NODE_PORT:+nodePort: \${NODE_PORT}}/d" \
+        "k8s/service-template.yaml" | kubectl --kubeconfig="$KCFG" apply -f -
+fi
+
+# Wait for the service to be ready
+echo "Waiting for ${SERVICE_NAME} to be ready..."
+kubectl --kubeconfig="$KCFG" rollout status deployment/${SERVICE_NAME} -n ${NAMESPACE} --timeout=600s
+
+echo "✓ Successfully deployed ${SERVICE_NAME} to ${NAMESPACE}"
+echo ""
+

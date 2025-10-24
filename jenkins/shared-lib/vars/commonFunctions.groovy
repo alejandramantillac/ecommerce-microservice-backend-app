@@ -2,7 +2,6 @@
 
 /**
  * Shared functions for Jenkins pipelines
- * This library contains common utility functions used across all environments
  */
 
 def initializePipelineVariables() {
@@ -34,7 +33,7 @@ def printDeploymentInfo(environment, imageTag, namespace = null) {
 
 def detectChangedServices(services) {
     // Build service list as comma-separated paths
-    def servicePaths = services.join(',')
+    def servicePaths = services.collect { it.path ?: it.name }.join(',')
     
     // Use the shell script to detect changes
     def changedServicesList = sh(
@@ -76,6 +75,64 @@ def pushDockerImages(registry, imageTag, latestTag, changedServices, dockerUser,
     sh """
         chmod +x jenkins/scripts/push-images.sh
         jenkins/scripts/push-images.sh "${registry}" "${imageTag}" "${latestTag}" "${changedServices}" "${dockerUser}" "${dockerPass}"
+    """
+}
+
+def deployToKubernetes(environment, namespace, registry, imageTag, changedServices) {
+    def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
+    def allServices = commonVars.getServicesList()
+    
+    echo "========================================="
+    echo "Deploying services to ${environment}"
+    echo "Namespace: ${namespace}"
+    echo "========================================="
+    
+    // Deploy core services first (in order)
+    def coreServices = commonVars.getCoreServices()
+    for (service in coreServices) {
+        if (changedServices.contains(service.name)) {
+            deployService(service, environment, namespace, registry, imageTag)
+        }
+    }
+
+    // Then deploy monitoring services
+    def monitoringServices = commonVars.getMonitoringServices()
+    for (service in monitoringServices) {
+        if (changedServices.contains(service.name)) {
+            deployService(service, environment, namespace, registry, imageTag)
+        }
+    }
+    
+    // Finally deploy business services in parallel
+    def businessServices = commonVars.getBusinessServices()
+    def businessDeployStages = [:]
+    businessServices.each { service ->
+        if (changedServices.contains(service.name)) {
+            businessDeployStages["Deploy ${service.name}"] = {
+                deployService(service, environment, namespace, registry, imageTag)
+            }
+        }
+    }
+    parallel businessDeployStages
+    
+}
+
+def deployService(serviceConfig, environment, namespace, registry, imageTag) {
+    def serviceName = serviceConfig.name
+    def serviceConfigJson = groovy.json.JsonOutput.toJson(serviceConfig)
+    
+    echo "Deploying ${serviceName} to ${environment}..."
+    
+    sh """
+        chmod +x jenkins/scripts/deploy-service.sh
+        export KCFG="\${KCFG}"
+        jenkins/scripts/deploy-service.sh \
+            "${serviceName}" \
+            "${namespace}" \
+            "${registry}" \
+            "${imageTag}" \
+            "${environment}" \
+            '${serviceConfigJson}'
     """
 }
 

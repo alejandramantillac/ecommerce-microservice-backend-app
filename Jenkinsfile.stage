@@ -1,0 +1,135 @@
+// Jenkinsfile for Staging Environment
+// Purpose: Complete validation - Build, Deploy, and All Tests
+
+pipeline {
+    agent any
+    
+    environment {
+        TARGET_ENVIRONMENT = 'staging'
+    }
+    
+    options {
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '20'))
+    }
+    
+    stages {
+        stage('Initialize') {
+            steps {
+                deleteDir()
+                checkout scm
+                script {
+                    // Load shared library functions
+                    def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    
+                    // Set environment variables from commonVars
+                    env.REGISTRY = commonVars.getRegistry()
+                    env.DOCKERHUB = commonVars.getDockerHubCredential()
+                    env.KUBECONFIG_CREDENTIAL = commonVars.getKubeConfigCredential()
+                    
+                    commonFunctions.initializePipelineVariables()
+                    
+                    def namespaces = commonVars.getNamespaces()
+                    
+                    env.K8S_NAMESPACE = namespaces.staging
+                    env.IMAGE_TAG = commonFunctions.generateImageTag(env.GIT_BRANCH, env.GIT_COMMIT_SHORT, 'staging')
+                    env.LATEST_TAG = "latest-staging"
+                    
+                    commonFunctions.printDeploymentInfo(env.TARGET_ENVIRONMENT, env.IMAGE_TAG, env.K8S_NAMESPACE)
+                    
+                    def services = commonVars.getServicesList()
+                    env.CHANGED_SERVICES = commonFunctions.detectChangedServices(services)
+                }
+                stash name: 'workspace', includes: '**/*'
+            }
+        }
+
+        stage('Build & Test') {
+            steps {
+                script {
+                    def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    
+                    echo "Building changed services: ${env.CHANGED_SERVICES}"
+                    commonFunctions.buildServicesInParallel(
+                        env.CHANGED_SERVICES, 
+                        env.REGISTRY, 
+                        env.IMAGE_TAG, 
+                        env.LATEST_TAG
+                    )
+                }
+            }
+        }
+        
+        stage('Publish Results') {
+            steps {
+                script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    commonFunctions.publishAllTestResults(env.CHANGED_SERVICES)
+                }
+            }
+        }
+
+        stage('Publish to Registry') {
+            steps {
+                unstash 'workspace'
+                withCredentials([usernamePassword(
+                    credentialsId: "${DOCKERHUB}", 
+                    usernameVariable: 'DOCKER_USER', 
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    script {
+                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                        commonFunctions.pushDockerImages(
+                            env.REGISTRY,
+                            env.IMAGE_TAG,
+                            env.LATEST_TAG,
+                            env.CHANGED_SERVICES,
+                            env.DOCKER_USER,
+                            env.DOCKER_PASS
+                        )
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to Staging') {
+            steps {
+                unstash 'workspace'
+                withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIAL}", variable: 'KCFG')]) {
+                    script {
+                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                        echo "Deploying to staging environment..."
+                        commonFunctions.deployToKubernetes(
+                            env.TARGET_ENVIRONMENT,
+                            env.K8S_NAMESPACE,
+                            env.REGISTRY,
+                            env.IMAGE_TAG,
+                            env.CHANGED_SERVICES
+                        )
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            script {
+                def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                commonFunctions.notifySuccess(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
+                echo "All tests passed - ready for production!"
+            }
+            cleanWs()
+        }
+        failure {
+            script {
+                def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                commonFunctions.notifyFailure(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
+                echo "Consider rolling back staging deployment"
+            }
+            cleanWs()
+        }
+    }
+}

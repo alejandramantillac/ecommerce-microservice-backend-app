@@ -14,6 +14,15 @@ spring:
     active:
     - dev
 
+eureka:
+  client:
+    service-url:
+      defaultZone: ${EUREKA_CLIENT_SERVICE_URL_DEFAULTZONE:http://localhost:8761/eureka/}
+    register-with-eureka: true
+    fetch-registry: true
+    healthcheck:
+      enabled: true
+
 resilience4j:
   circuitbreaker:
     instances:
