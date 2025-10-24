@@ -1,0 +1,102 @@
+// Jenkinsfile for Development Environment
+// Purpose: Fast feedback loop - Build and Unit Tests only
+
+@Library('jenkins-shared-lib') _
+
+def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
+def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+
+pipeline {
+    agent any
+    
+    environment {
+        REGISTRY = commonVars.getRegistry()
+        DOCKERHUB = commonVars.getDockerHubCredential()
+        TARGET_ENVIRONMENT = 'dev'
+    }
+    
+    options {
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '10'))
+    }
+    
+    stages {
+        stage('Initialize') {
+            steps {
+                deleteDir()
+                checkout scm
+                script {
+                    commonFunctions.initializePipelineVariables()
+                    env.IMAGE_TAG = commonFunctions.generateImageTag(env.GIT_BRANCH, env.GIT_COMMIT_SHORT, 'dev')
+                    env.LATEST_TAG = "latest-dev"
+                    
+                    commonFunctions.printDeploymentInfo(env.TARGET_ENVIRONMENT, env.IMAGE_TAG)
+                    
+                    def services = commonVars.getServicesList()
+                    env.CHANGED_SERVICES = commonFunctions.detectChangedServices(services)
+                }
+                stash name: 'workspace', includes: '**/*'
+            }
+        }
+
+        stage('Build & Test') {
+            steps {
+                script {
+                    echo "Building changed services: ${env.CHANGED_SERVICES}"
+                    commonFunctions.buildServicesInParallel(
+                        env.CHANGED_SERVICES, 
+                        env.REGISTRY, 
+                        env.IMAGE_TAG, 
+                        env.LATEST_TAG
+                    )
+                }
+            }
+        }
+        
+        stage('Publish Results') {
+            steps {
+                script {
+                    commonFunctions.publishAllTestResults(env.CHANGED_SERVICES)
+                }
+            }
+        }
+
+        stage('Publish to Registry') {
+            steps {
+                unstash 'workspace'
+                withCredentials([usernamePassword(
+                    credentialsId: "${DOCKERHUB}", 
+                    usernameVariable: 'DOCKER_USER', 
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    script {
+                        commonFunctions.pushDockerImages(
+                            env.REGISTRY,
+                            env.IMAGE_TAG,
+                            env.LATEST_TAG,
+                            env.CHANGED_SERVICES,
+                            env.DOCKER_USER,
+                            env.DOCKER_PASS
+                        )
+                    }
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            script {
+                commonFunctions.notifySuccess(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
+            }
+        }
+        failure {
+            script {
+                commonFunctions.notifyFailure(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
+            }
+        }
+        always {
+            cleanWs()
+        }
+    }
+}
