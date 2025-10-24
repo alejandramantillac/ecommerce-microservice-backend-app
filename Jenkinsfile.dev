@@ -1,17 +1,10 @@
 // Jenkinsfile for Development Environment
 // Purpose: Fast feedback loop - Build and Unit Tests only
 
-@Library('jenkins-shared-lib') _
-
-def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
-def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-
 pipeline {
     agent any
     
     environment {
-        REGISTRY = commonVars.getRegistry()
-        DOCKERHUB = commonVars.getDockerHubCredential()
         TARGET_ENVIRONMENT = 'dev'
     }
     
@@ -26,6 +19,14 @@ pipeline {
                 deleteDir()
                 checkout scm
                 script {
+                    // Load shared library functions
+                    def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    
+                    // Set environment variables from commonVars
+                    env.REGISTRY = commonVars.getRegistry()
+                    env.DOCKERHUB = commonVars.getDockerHubCredential()
+                    
                     commonFunctions.initializePipelineVariables()
                     env.IMAGE_TAG = commonFunctions.generateImageTag(env.GIT_BRANCH, env.GIT_COMMIT_SHORT, 'dev')
                     env.LATEST_TAG = "latest-dev"
@@ -42,6 +43,9 @@ pipeline {
         stage('Build & Test') {
             steps {
                 script {
+                    def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    
                     echo "Building changed services: ${env.CHANGED_SERVICES}"
                     commonFunctions.buildServicesInParallel(
                         env.CHANGED_SERVICES, 
@@ -56,6 +60,7 @@ pipeline {
         stage('Publish Results') {
             steps {
                 script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                     commonFunctions.publishAllTestResults(env.CHANGED_SERVICES)
                 }
             }
@@ -70,6 +75,7 @@ pipeline {
                     passwordVariable: 'DOCKER_PASS'
                 )]) {
                     script {
+                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                         commonFunctions.pushDockerImages(
                             env.REGISTRY,
                             env.IMAGE_TAG,
@@ -87,15 +93,16 @@ pipeline {
     post {
         success {
             script {
+                def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                 commonFunctions.notifySuccess(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
             }
+            cleanWs()
         }
         failure {
             script {
+                def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                 commonFunctions.notifyFailure(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
             }
-        }
-        always {
             cleanWs()
         }
     }

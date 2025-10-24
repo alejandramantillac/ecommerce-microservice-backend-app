@@ -12,7 +12,8 @@ def initializePipelineVariables() {
 }
 
 def generateImageTag(branch, commit, suffix = '') {
-    def tag = "${branch}-${commit}"
+    def sanitizedBranch = branch.replaceAll('/', '-').replaceAll('[^a-zA-Z0-9._-]', '_')
+    def tag = "${sanitizedBranch}-${commit}"
     return suffix ? "${tag}-${suffix}" : tag
 }
 
