@@ -3,6 +3,7 @@ Performance Tests using Locust
 """
 import time
 import random
+from datetime import datetime
 from locust import HttpUser, task, between, events
 
 class EcommerceUser(HttpUser):
@@ -115,9 +116,11 @@ class EcommerceUser(HttpUser):
         """Add product to favourites"""
         if self.user_id and self.product_ids:
             fav_id = random.randint(6000, 9999)
+            current_datetime = datetime.now().strftime("%d-%m-%Y__%H:%M:%S:000000")
             fav_data = {
-                "favouriteId": fav_id,
-                "likeDate": "2024-10-25",
+                "userId": self.user_id,
+                "productId": random.choice(self.product_ids),
+                "likeDate": current_datetime,
                 "user": {"userId": self.user_id},
                 "product": {"productId": random.choice(self.product_ids)}
             }
