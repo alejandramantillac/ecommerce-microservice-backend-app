@@ -159,6 +159,7 @@ def getServicesList() {
             port: 9411,
             type: 'monitoring',
             path: 'zipkin',
+            external: true,
             exposure: [
                 dev: [
                     type: 'NodePort',

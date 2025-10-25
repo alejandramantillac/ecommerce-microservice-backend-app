@@ -13,8 +13,13 @@ for service in "${SERVICE_ARRAY[@]}"; do
     # Extract service path from service definition
     service_path=$(echo "$service" | cut -d':' -f1)
     
-    # Check if service directory or related files changed
-    changes=$(git diff --name-only HEAD~1 HEAD | grep -E "^${service_path}/|^pom\.xml$|^shared/" || true)
+    if [ "$service_path" = "zipkin" ]; then
+        # Zipkin only changes if its k8s config changes
+        changes=$(git diff --name-only HEAD~1 HEAD | grep -E "^k8s/zipkin.yaml" || true)
+    else
+        # Regular services: check code changes
+        changes=$(git diff --name-only HEAD~1 HEAD | grep -E "^${service_path}/|^pom\.xml$|^shared/" || true)
+    fi
     
     if [ -n "$changes" ]; then
         echo "Changes detected in ${service_path}:" >&2

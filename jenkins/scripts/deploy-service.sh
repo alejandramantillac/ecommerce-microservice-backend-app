@@ -54,39 +54,52 @@ echo ""
 export SERVICE_NAME NAMESPACE REGISTRY IMAGE_TAG SERVICE_PORT SERVICE_TYPE NODE_PORT
 export MEMORY_REQUEST MEMORY_LIMIT CPU_REQUEST CPU_LIMIT REPLICAS HEALTH_PATH
 
-# Build the manifest
-if [ -n "$NODE_PORT" ] && [ "$SERVICE_TYPE" = "NodePort" ]; then
-    # With NodePort
+if [ -f "k8s/${SERVICE_NAME}.yaml" ]; then
+    echo "Using specific configuration: k8s/${SERVICE_NAME}.yaml"
+
+    # Apply with variable substitution
     sed -e "s|\${SERVICE_NAME}|${SERVICE_NAME}|g" \
         -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
-        -e "s|\${REGISTRY}|${REGISTRY}|g" \
-        -e "s|\${IMAGE_TAG}|${IMAGE_TAG}|g" \
-        -e "s|\${SERVICE_PORT}|${SERVICE_PORT}|g" \
-        -e "s|\${SERVICE_TYPE}|${SERVICE_TYPE}|g" \
-        -e "s|\${MEMORY_REQUEST}|${MEMORY_REQUEST}|g" \
-        -e "s|\${MEMORY_LIMIT}|${MEMORY_LIMIT}|g" \
-        -e "s|\${CPU_REQUEST}|${CPU_REQUEST}|g" \
-        -e "s|\${CPU_LIMIT}|${CPU_LIMIT}|g" \
-        -e "s|\${REPLICAS}|${REPLICAS}|g" \
-        -e "s|\${HEALTH_PATH}|${HEALTH_PATH}|g" \
-        -e "s|    \${NODE_PORT:+nodePort: \${NODE_PORT}}|    nodePort: ${NODE_PORT}|g" \
-        "k8s/service-template.yaml" | kubectl --kubeconfig="$KCFG" apply -f -
+        -e "s|\${NODE_PORT}|${NODE_PORT}|g" \
+        "k8s/${SERVICE_NAME}.yaml" | kubectl --kubeconfig="$KCFG" apply -f -
+
 else
-    # Without NodePort (ClusterIP)
-    sed -e "s|\${SERVICE_NAME}|${SERVICE_NAME}|g" \
-        -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
-        -e "s|\${REGISTRY}|${REGISTRY}|g" \
-        -e "s|\${IMAGE_TAG}|${IMAGE_TAG}|g" \
-        -e "s|\${SERVICE_PORT}|${SERVICE_PORT}|g" \
-        -e "s|\${SERVICE_TYPE}|ClusterIP|g" \
-        -e "s|\${MEMORY_REQUEST}|${MEMORY_REQUEST}|g" \
-        -e "s|\${MEMORY_LIMIT}|${MEMORY_LIMIT}|g" \
-        -e "s|\${CPU_REQUEST}|${CPU_REQUEST}|g" \
-        -e "s|\${CPU_LIMIT}|${CPU_LIMIT}|g" \
-        -e "s|\${REPLICAS}|${REPLICAS}|g" \
-        -e "s|\${HEALTH_PATH}|${HEALTH_PATH}|g" \
-        -e "/\${NODE_PORT:+nodePort: \${NODE_PORT}}/d" \
-        "k8s/service-template.yaml" | kubectl --kubeconfig="$KCFG" apply -f -
+    echo "Using generic template: k8s/service-template.yaml"
+
+    # Build the manifest
+    if [ -n "$NODE_PORT" ] && [ "$SERVICE_TYPE" = "NodePort" ]; then
+        # With NodePort
+        sed -e "s|\${SERVICE_NAME}|${SERVICE_NAME}|g" \
+            -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
+            -e "s|\${REGISTRY}|${REGISTRY}|g" \
+            -e "s|\${IMAGE_TAG}|${IMAGE_TAG}|g" \
+            -e "s|\${SERVICE_PORT}|${SERVICE_PORT}|g" \
+            -e "s|\${SERVICE_TYPE}|${SERVICE_TYPE}|g" \
+            -e "s|\${MEMORY_REQUEST}|${MEMORY_REQUEST}|g" \
+            -e "s|\${MEMORY_LIMIT}|${MEMORY_LIMIT}|g" \
+            -e "s|\${CPU_REQUEST}|${CPU_REQUEST}|g" \
+            -e "s|\${CPU_LIMIT}|${CPU_LIMIT}|g" \
+            -e "s|\${REPLICAS}|${REPLICAS}|g" \
+            -e "s|\${HEALTH_PATH}|${HEALTH_PATH}|g" \
+            -e "s|    \${NODE_PORT:+nodePort: \${NODE_PORT}}|    nodePort: ${NODE_PORT}|g" \
+            "k8s/service-template.yaml" | kubectl --kubeconfig="$KCFG" apply -f -
+    else
+        # Without NodePort (ClusterIP)
+        sed -e "s|\${SERVICE_NAME}|${SERVICE_NAME}|g" \
+            -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
+            -e "s|\${REGISTRY}|${REGISTRY}|g" \
+            -e "s|\${IMAGE_TAG}|${IMAGE_TAG}|g" \
+            -e "s|\${SERVICE_PORT}|${SERVICE_PORT}|g" \
+            -e "s|\${SERVICE_TYPE}|ClusterIP|g" \
+            -e "s|\${MEMORY_REQUEST}|${MEMORY_REQUEST}|g" \
+            -e "s|\${MEMORY_LIMIT}|${MEMORY_LIMIT}|g" \
+            -e "s|\${CPU_REQUEST}|${CPU_REQUEST}|g" \
+            -e "s|\${CPU_LIMIT}|${CPU_LIMIT}|g" \
+            -e "s|\${REPLICAS}|${REPLICAS}|g" \
+            -e "s|\${HEALTH_PATH}|${HEALTH_PATH}|g" \
+            -e "/\${NODE_PORT:+nodePort: \${NODE_PORT}}/d" \
+            "k8s/service-template.yaml" | kubectl --kubeconfig="$KCFG" apply -f -
+    fi
 fi
 
 # Wait for the service to be ready

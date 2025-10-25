@@ -49,17 +49,30 @@ def detectChangedServices(services) {
 }
 
 def buildServicesInParallel(changedServices, registry, imageTag, latestTag) {
+    def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
     def buildStages = [:]
     def serviceList = changedServices.split(',')
     
     for (serviceName in serviceList) {
         def service = serviceName.trim()
+        def serviceConfig = commonVars.getServiceConfig(service)
+        
+        // Skip external services (like zipkin)
+        if (serviceConfig?.external) {
+            echo "Skipping build for external service: ${service}"
+            continue
+        }
+        
         buildStages["Build ${service}"] = {
             buildService(service, registry, imageTag, latestTag)
         }
     }
     
-    parallel buildStages
+    if (!buildStages.isEmpty()) {
+        parallel buildStages
+    } else {
+        echo "No services to build (all are external)"
+    }
 }
 
 def buildService(serviceName, registry, imageTag, latestTag) {
