@@ -27,6 +27,10 @@ echo "$DOCKER_PASS" | docker login -u "$DOCKER_USER" --password-stdin
 # Push changed services
 IFS=',' read -ra SERVICE_ARRAY <<< "$CHANGED_SERVICES"
 for service_name in "${SERVICE_ARRAY[@]}"; do
+    if [ "$service_name" = "zipkin" ]; then
+        echo "Skipping zipkin..."
+        continue
+    fi
     echo "Pushing ${service_name}..."
     docker push "${REGISTRY}/${service_name}:${IMAGE_TAG}"
     docker push "${REGISTRY}/${service_name}:${LATEST_TAG}"
