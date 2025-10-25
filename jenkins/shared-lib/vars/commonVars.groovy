@@ -86,7 +86,7 @@ def getServicesList() {
                 cpuRequest: '250m',
                 cpuLimit: '500m'
             ],
-            healthPath: '/proxy-client/actuator/health',
+            healthPath: '/app/actuator/health',
             replicas: [dev: 1, staging: 1, prod: 2]
         ],
 
