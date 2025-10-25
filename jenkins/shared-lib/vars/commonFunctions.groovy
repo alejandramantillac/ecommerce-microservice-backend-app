@@ -174,6 +174,65 @@ def deployService(serviceConfig, environment, namespace, registry, imageTag) {
     """
 }
 
+def getLoadBalancerIP(serviceName, namespace) {
+    def ip = sh(
+        script: """
+            kubectl get svc ${serviceName} -n ${namespace} \
+            --kubeconfig=\${KCFG} \
+            -o jsonpath='{.status.loadBalancer.ingress[0].ip}'
+        """,
+        returnStdout: true
+    ).trim()
+    return ip
+}
+
+def runAllTests(namespace) {
+    def stagingGatewayIP = getLoadBalancerIP('api-gateway', 'staging')
+    def apiGatewayUrl = "http://${stagingGatewayIP}:8080"
+
+    def testStages = [
+        'Integration Tests': {
+            runIntegrationTests(namespace, apiGatewayUrl)
+        },
+        'E2E Tests': {
+            runE2ETests(namespace, apiGatewayUrl)
+        },
+        'Performance Tests': {
+            runPerformanceTests(namespace, apiGatewayUrl)
+        }
+    ]
+
+    parallel testStages
+}
+
+def runIntegrationTests(namespace, apiGatewayUrl) {
+    sh """
+        chmod +x jenkins/scripts/integration-tests.sh
+        export KCFG="\${KCFG}"
+        jenkins/scripts/integration-tests.sh "${namespace}" "${apiGatewayUrl}"
+    """
+}
+
+def runE2ETests(namespace, apiGatewayUrl) {
+    sh """
+        chmod +x jenkins/scripts/e2e-tests.sh
+        export KCFG="\${KCFG}"
+        jenkins/scripts/e2e-tests.sh "${namespace}" "${apiGatewayUrl}"
+    """
+}
+
+def runPerformanceTests(namespace, apiGatewayUrl, users = '50', spawnRate = '10', runTime = '300s') {
+    sh """
+        chmod +x jenkins/scripts/performance-tests.sh
+        export KCFG="\${KCFG}"
+        jenkins/scripts/performance-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}"
+    """
+    
+    archiveArtifacts artifacts: 'performance_report.html,performance_data*.csv', 
+                     fingerprint: true, 
+                     allowEmptyArchive: true
+}
+
 def publishAllTestResults(changedServices) {
     def serviceList = changedServices.split(',')
     

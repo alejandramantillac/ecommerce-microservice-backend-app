@@ -112,6 +112,22 @@ pipeline {
                 }
             }
         }
+
+        stage('Run Tests') {
+            steps {
+                withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIAL}", variable: 'KCFG')]) {
+                    script {
+                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                        echo "Running all test suites..."
+                        env.API_GATEWAY_URL = commonFunctions.getLoadBalancerIP('api-gateway', 'staging')
+
+                        echo "API Gateway URL: ${env.API_GATEWAY_URL}"
+
+                        commonFunctions.runAllTests(env.K8S_NAMESPACE)
+                    }
+                }
+            }
+        }
     }
     
     post {
