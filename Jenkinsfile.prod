@@ -33,12 +33,9 @@ pipeline {
                     commonFunctions.initializePipelineVariables()
                     
                     def namespaces = commonVars.getNamespaces()
-                    def apiUrls = commonVars.getApiGatewayUrls()
                     
                     env.K8S_NAMESPACE_STAGING = namespaces.staging
                     env.K8S_NAMESPACE_PROD = namespaces.prod
-                    env.API_GATEWAY_STAGING = apiUrls.staging
-                    env.API_GATEWAY_PROD = apiUrls.prod
                     env.IMAGE_TAG = commonFunctions.generateImageTag(env.GIT_BRANCH, env.GIT_COMMIT_SHORT)
                     env.LATEST_TAG = "latest"
                     env.RELEASE_VERSION = "${env.BASE_RELEASE_VERSION}.${env.BUILD_NUMBER}"
@@ -188,6 +185,11 @@ pipeline {
                             script {
                                 def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                                 echo "Running performance tests with production-like load..."
+                                
+                                env.API_GATEWAY_STAGING = commonFunctions.getLoadBalancerIP('api-gateway', 'staging')
+                                env.API_GATEWAY_STAGING = "http://${env.API_GATEWAY_STAGING}:8080"
+                                
+                                echo "Testing against: ${env.API_GATEWAY_STAGING}"
                                 
                                 // Run performance tests with higher load for production validation
                                 commonFunctions.runPerformanceTests(
