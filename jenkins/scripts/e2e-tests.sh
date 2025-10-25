@@ -16,16 +16,8 @@ echo ""
 echo "Setting up Python environment..."
 cd tests
 
-# Create virtual environment if it doesn't exist
-if [ ! -d "venv" ]; then
-    echo "Creating Python virtual environment..."
-    python3 -m venv venv
-fi
-
-# Activate virtual environment and install dependencies
-echo "Installing test dependencies in virtual environment..."
-source venv/bin/activate
-pip install -q -r requirements.txt
+python3 -m pip install --break-system-packages -q -r requirements.txt 2>/dev/null || \
+    python3 -m pip install -q -r requirements.txt
 
 echo ""
 echo "Running E2E tests..."
