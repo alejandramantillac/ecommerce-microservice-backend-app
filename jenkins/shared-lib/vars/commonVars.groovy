@@ -133,11 +133,13 @@ def getServicesList() {
                     nodePort: 30180
                 ],
                 staging: [
-                    type: 'NodePort',
+                    type: 'LoadBalancer',
+                    externalPort: 9080,
                     nodePort: 30180
                 ],
                 prod: [
-                    type: 'NodePort',
+                    type: 'LoadBalancer',
+                    externalPort: 8080,
                     nodePort: 30080
                 ]
             ],
@@ -166,11 +168,11 @@ def getServicesList() {
                     nodePort: 30941
                 ],
                 staging: [
-                    type: 'NodePort',
+                    type: 'LoadBalancer',
                     nodePort: 30941
                 ],
                 prod: [
-                    type: 'NodePort',
+                    type: 'LoadBalancer',
                     nodePort: 30941
                 ]
             ],
