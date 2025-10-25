@@ -39,9 +39,6 @@ locust -f performance/locustfile.py \
 
 TEST_EXIT_CODE=$?
 
-# Deactivate virtual environment
-deactivate
-
 # Generate performance summary
 echo ""
 echo "========================================="

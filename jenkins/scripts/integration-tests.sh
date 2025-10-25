@@ -39,9 +39,6 @@ pytest integration/ -v -m integration \
 
 TEST_EXIT_CODE=$?
 
-# Deactivate virtual environment
-deactivate
-
 echo ""
 if [ $TEST_EXIT_CODE -eq 0 ]; then
     echo "========================================="

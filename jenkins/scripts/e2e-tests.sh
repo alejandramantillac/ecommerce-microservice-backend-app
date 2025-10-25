@@ -33,9 +33,6 @@ pytest e2e/ -v -m e2e \
 
 TEST_EXIT_CODE=$?
 
-# Deactivate virtual environment
-deactivate
-
 echo ""
 if [ $TEST_EXIT_CODE -eq 0 ]; then
     echo "========================================="
