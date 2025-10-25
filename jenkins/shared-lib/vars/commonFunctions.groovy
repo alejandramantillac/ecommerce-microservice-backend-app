@@ -233,6 +233,20 @@ def runPerformanceTests(namespace, apiGatewayUrl, users = '50', spawnRate = '10'
                      allowEmptyArchive: true
 }
 
+def generateAndPublishRelease(releaseVersion, githubToken) {
+    sh """
+        chmod +x jenkins/scripts/generate-release-notes.sh
+        export IMAGE_TAG="${env.IMAGE_TAG}"
+        export K8S_NAMESPACE_PROD="${env.K8S_NAMESPACE_PROD}"
+        export REGISTRY="${env.REGISTRY}"
+        jenkins/scripts/generate-release-notes.sh "${releaseVersion}" "${githubToken}"
+    """
+    
+    archiveArtifacts artifacts: 'release_notes.md,CHANGELOG.md', 
+                     fingerprint: true, 
+                     allowEmptyArchive: true
+}
+
 def publishAllTestResults(changedServices) {
     def serviceList = changedServices.split(',')
     

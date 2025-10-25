@@ -1,0 +1,341 @@
+// Jenkinsfile for Production Environment
+// Purpose: Full release pipeline - Validate in staging, approve, deploy to prod, generate release
+
+pipeline {
+    agent any
+    
+    environment {
+        TARGET_ENVIRONMENT = 'production'
+        BASE_RELEASE_VERSION = '1.0'
+    }
+    
+    options {
+        timestamps()
+        buildDiscarder(logRotator(numToKeepStr: '30'))
+    }
+    
+    stages {
+        stage('Initialize') {
+            steps {
+                deleteDir()
+                checkout scm
+                script {
+                    // Load shared library functions
+                    def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    
+                    // Set environment variables from commonVars
+                    env.REGISTRY = commonVars.getRegistry()
+                    env.DOCKERHUB = commonVars.getDockerHubCredential()
+                    env.KUBECONFIG_CREDENTIAL = commonVars.getKubeConfigCredential()
+                    env.GITHUB_TOKEN_CREDENTIAL = commonVars.getGitHubTokenCredential()
+                    
+                    commonFunctions.initializePipelineVariables()
+                    
+                    def namespaces = commonVars.getNamespaces()
+                    def apiUrls = commonVars.getApiGatewayUrls()
+                    
+                    env.K8S_NAMESPACE_STAGING = namespaces.staging
+                    env.K8S_NAMESPACE_PROD = namespaces.prod
+                    env.API_GATEWAY_STAGING = apiUrls.staging
+                    env.API_GATEWAY_PROD = apiUrls.prod
+                    env.IMAGE_TAG = commonFunctions.generateImageTag(env.GIT_BRANCH, env.GIT_COMMIT_SHORT)
+                    env.LATEST_TAG = "latest"
+                    env.RELEASE_VERSION = "${env.BASE_RELEASE_VERSION}.${env.BUILD_NUMBER}"
+                    
+                    echo "========================================="
+                    echo "Production Release Pipeline"
+                    echo "========================================="
+                    echo "Release Version: ${env.RELEASE_VERSION}"
+                    echo "Image Tag: ${env.IMAGE_TAG}"
+                    echo "Staging Namespace: ${env.K8S_NAMESPACE_STAGING}"
+                    echo "Production Namespace: ${env.K8S_NAMESPACE_PROD}"
+                    echo "========================================="
+                    
+                    def services = commonVars.getServicesList()
+                    env.CHANGED_SERVICES = commonFunctions.detectChangedServices(services)
+                }
+                stash name: 'workspace', includes: '**/*'
+            }
+        }
+
+        stage('Build & Test') {
+            steps {
+                script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    
+                    echo "Building services for production release..."
+                    commonFunctions.buildServicesInParallel(
+                        env.CHANGED_SERVICES,
+                        env.REGISTRY,
+                        env.IMAGE_TAG,
+                        env.LATEST_TAG
+                    )
+                }
+            }
+        }
+        
+        stage('Publish Unit Test Results') {
+            steps {
+                script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    echo "Publishing unit test results..."
+                    commonFunctions.publishAllTestResults(env.CHANGED_SERVICES)
+                }
+            }
+        }
+        
+        stage('Publish to Registry') {
+            steps {
+                unstash 'workspace'
+                withCredentials([usernamePassword(
+                    credentialsId: "${DOCKERHUB}",
+                    usernameVariable: 'DOCKER_USER',
+                    passwordVariable: 'DOCKER_PASS'
+                )]) {
+                    script {
+                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                        commonFunctions.pushDockerImages(
+                            env.REGISTRY,
+                            env.IMAGE_TAG,
+                            env.LATEST_TAG,
+                            env.CHANGED_SERVICES,
+                            env.DOCKER_USER,
+                            env.DOCKER_PASS
+                        )
+                    }
+                }
+            }
+        }
+        
+        stage('Validate in Staging') {
+            stages {
+                stage('Deploy to Staging') {
+                    steps {
+                        unstash 'workspace'
+                        withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIAL}", variable: 'KCFG')]) {
+                            script {
+                                def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                                echo "Pre-production validation: Deploying to staging..."
+                                commonFunctions.deployToKubernetes(
+                                    'staging',
+                                    env.K8S_NAMESPACE_STAGING,
+                                    env.REGISTRY,
+                                    env.IMAGE_TAG,
+                                    env.CHANGED_SERVICES
+                                )
+                            }
+                        }
+                    }
+                }
+                
+                stage('Integration & E2E Tests') {
+                    steps {
+                        withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIAL}", variable: 'KCFG')]) {
+                            script {
+                                def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                                echo "Running comprehensive test suite in staging..."
+                                
+                                // Get API Gateway URL
+                                env.STAGING_GATEWAY_IP = commonFunctions.getLoadBalancerIP('api-gateway', 'staging')
+                                env.API_GATEWAY_STAGING = "http://${env.STAGING_GATEWAY_IP}:8080"
+                                
+                                echo "Testing against: ${env.API_GATEWAY_STAGING}"
+                                
+                                // Run integration tests
+                                commonFunctions.runIntegrationTests(
+                                    env.K8S_NAMESPACE_STAGING, 
+                                    env.API_GATEWAY_STAGING
+                                )
+                                
+                                // Run E2E tests
+                                commonFunctions.runE2ETests(
+                                    env.K8S_NAMESPACE_STAGING, 
+                                    env.API_GATEWAY_STAGING
+                                )
+                            }
+                        }
+                    }
+                    post {
+                        always {
+                            // Publish test reports
+                            publishHTML([
+                                reportDir: 'tests',
+                                reportFiles: 'integration-report.html',
+                                reportName: 'Integration Test Report',
+                                keepAll: true,
+                                alwaysLinkToLastBuild: true
+                            ])
+                            publishHTML([
+                                reportDir: 'tests',
+                                reportFiles: 'e2e-report.html',
+                                reportName: 'E2E Test Report',
+                                keepAll: true,
+                                alwaysLinkToLastBuild: true
+                            ])
+                            archiveArtifacts artifacts: 'tests/*-report.html,tests/*-report.json', 
+                                             fingerprint: true, 
+                                             allowEmptyArchive: true
+                        }
+                    }
+                }
+                
+                stage('Performance Tests') {
+                    steps {
+                        withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIAL}", variable: 'KCFG')]) {
+                            script {
+                                def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                                echo "Running performance tests with production-like load..."
+                                
+                                // Run performance tests with higher load for production validation
+                                commonFunctions.runPerformanceTests(
+                                    env.K8S_NAMESPACE_STAGING, 
+                                    env.API_GATEWAY_STAGING,
+                                    '100',  // users
+                                    '20',   // spawn rate
+                                    '120s'  // 2 minutes (ajustado de 10 minutos)
+                                )
+                            }
+                        }
+                    }
+                    post {
+                        always {
+                            // Publish performance report
+                            publishHTML([
+                                reportDir: 'tests',
+                                reportFiles: 'performance-report.html',
+                                reportName: 'Performance Test Report',
+                                keepAll: true,
+                                alwaysLinkToLastBuild: true
+                            ])
+                            archiveArtifacts artifacts: 'tests/performance*.csv,tests/performance-report.html', 
+                                             fingerprint: true, 
+                                             allowEmptyArchive: true
+                        }
+                    }
+                }
+            }
+        }
+
+        stage('Approve Production Release') {
+            steps {
+                script {
+                    echo "========================================="
+                    echo "✓ All staging validations passed!"
+                    echo "Release Version: ${env.RELEASE_VERSION}"
+                    echo "Services to deploy: ${env.CHANGED_SERVICES}"
+                    echo "Image Tag: ${env.IMAGE_TAG}"
+                    echo "========================================="
+                    
+                    timeout(time: 30, unit: 'MINUTES') {
+                        input message: "Deploy Release ${env.RELEASE_VERSION} to Production?",
+                              ok: 'Deploy to Production',
+                              submitter: 'admin,release-manager'
+                    }
+                }
+            }
+        }
+        
+        stage('Deploy to Production') {
+            steps {
+                unstash 'workspace'
+                withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIAL}", variable: 'KCFG')]) {
+                    script {
+                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                        echo "========================================="
+                        echo "🚀 Deploying Release ${env.RELEASE_VERSION} to PRODUCTION"
+                        echo "========================================="
+                        
+                        commonFunctions.deployToKubernetes(
+                            'prod',
+                            env.K8S_NAMESPACE_PROD,
+                            env.REGISTRY,
+                            env.IMAGE_TAG,
+                            env.CHANGED_SERVICES
+                        )
+                        
+                        echo "✓ Production deployment completed"
+                    }
+                }
+            }
+        }
+
+        stage('Generate Release Notes') {
+            steps {
+                withCredentials([
+                    string(credentialsId: "${GITHUB_TOKEN_CREDENTIAL}", variable: 'GITHUB_TOKEN')
+                ]) {
+                    script {
+                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                        echo "Generating release notes and creating Git tag..."
+                        commonFunctions.generateAndPublishRelease(
+                            env.RELEASE_VERSION,
+                            env.GITHUB_TOKEN
+                        )
+                        
+                        echo "✓ Release notes generated"
+                        echo "✓ Git tag v${env.RELEASE_VERSION} created"
+                    }
+                }
+            }
+            post {
+                always {
+                    archiveArtifacts artifacts: 'release_notes.md,CHANGELOG.md', 
+                                     fingerprint: true, 
+                                     allowEmptyArchive: true
+                }
+            }
+        }
+    }
+    
+    post {
+        success {
+            script {
+                def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                echo "========================================="
+                echo "✅ PRODUCTION RELEASE SUCCESSFUL!"
+                echo "========================================="
+                echo "Release Version: v${env.RELEASE_VERSION}"
+                echo "Services Deployed: ${env.CHANGED_SERVICES}"
+                echo "Image Tag: ${env.IMAGE_TAG}"
+                echo "Namespace: ${env.K8S_NAMESPACE_PROD}"
+                echo "Git Tag: v${env.RELEASE_VERSION}"
+                echo "========================================="
+                echo "📝 Release notes and artifacts have been archived"
+                echo "🏷️  Git tag has been created"
+                echo "🎉 Production is live with the new release!"
+                echo "========================================="
+                
+                commonFunctions.notifySuccess(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
+            }
+            cleanWs()
+        }
+        failure {
+            script {
+                def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                echo "========================================="
+                echo "❌ PRODUCTION RELEASE FAILED!"
+                echo "========================================="
+                echo "Release Version: v${env.RELEASE_VERSION}"
+                echo "Failed Stage: ${env.STAGE_NAME}"
+                echo "========================================="
+                echo "⚠️  IMMEDIATE ACTION REQUIRED"
+                echo "📋 Review logs and test reports"
+                echo "🔄 Consider rollback procedures if deployment reached production"
+                echo "========================================="
+                
+                commonFunctions.notifyFailure(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
+            }
+            cleanWs()
+        }
+        unstable {
+            script {
+                echo "========================================="
+                echo "⚠️  Pipeline completed with warnings"
+                echo "Review test results before production use"
+                echo "========================================="
+            }
+            cleanWs()
+        }
+    }
+}

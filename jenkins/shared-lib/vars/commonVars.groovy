@@ -235,6 +235,10 @@ def getKubeConfigCredential() {
     return 'kubeconfig'
 }
 
+def getGitHubTokenCredential() {
+    return 'github-token'
+}
+
 def getNamespaces() {
     return [
         dev: 'dev',
