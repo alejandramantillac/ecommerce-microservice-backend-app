@@ -160,6 +160,7 @@ pipeline {
                         always {
                             // Publish test reports
                             publishHTML([
+                                allowMissing: true,
                                 reportDir: 'tests',
                                 reportFiles: 'integration-report.html',
                                 reportName: 'Integration Test Report',
@@ -167,6 +168,7 @@ pipeline {
                                 alwaysLinkToLastBuild: true
                             ])
                             publishHTML([
+                                allowMissing: true,
                                 reportDir: 'tests',
                                 reportFiles: 'e2e-report.html',
                                 reportName: 'E2E Test Report',
@@ -202,6 +204,7 @@ pipeline {
                         always {
                             // Publish performance report
                             publishHTML([
+                                allowMissing: true,
                                 reportDir: 'tests',
                                 reportFiles: 'performance-report.html',
                                 reportName: 'Performance Test Report',
