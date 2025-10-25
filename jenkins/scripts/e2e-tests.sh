@@ -13,18 +13,26 @@ echo "API Gateway: ${API_GATEWAY_URL}"
 echo "========================================="
 
 echo ""
-echo "Installing test dependencies..."
+echo "Setting up Python environment..."
 cd tests
-python3 -m pip install -q -r requirements.txt
+
+# Create virtual environment if it doesn't exist
+if [ ! -d "venv" ]; then
+    echo "Creating Python virtual environment..."
+    python3 -m venv venv
+fi
+
+# Activate virtual environment and install dependencies
+echo "Installing test dependencies in virtual environment..."
+source venv/bin/activate
+pip install -q -r requirements.txt
 
 echo ""
 echo "Running E2E tests..."
 export API_GATEWAY_URL="${API_GATEWAY_URL}"
 
 # Run pytest with E2E tests
-pytest e2e/ \
-    -v \
-    -m e2e \
+pytest e2e/ -v -m e2e \
     --html=e2e-report.html \
     --self-contained-html \
     --json-report \
@@ -32,6 +40,9 @@ pytest e2e/ \
     --tb=short
 
 TEST_EXIT_CODE=$?
+
+# Deactivate virtual environment
+deactivate
 
 echo ""
 if [ $TEST_EXIT_CODE -eq 0 ]; then
@@ -47,4 +58,3 @@ fi
 
 # Move back to root
 cd ..
-

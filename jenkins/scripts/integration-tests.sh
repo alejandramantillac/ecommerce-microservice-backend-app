@@ -19,18 +19,36 @@ kubectl --kubeconfig="$KCFG" get pods -n ${NAMESPACE} || true
 kubectl --kubeconfig="$KCFG" get svc -n ${NAMESPACE} || true
 
 echo ""
-echo "Installing test dependencies..."
+echo "Setting up Python environment..."
 cd tests
-python3 -m pip install -q -r requirements.txt
+
+# Create virtual environment if it doesn't exist
+if [ ! -d "venv" ]; then
+    echo "Creating Python virtual environment..."
+    python3 -m venv venv
+fi
+
+# Activate virtual environment and install dependencies
+echo "Installing test dependencies in virtual environment..."
+source venv/bin/activate
+pip install -q -r requirements.txt
 
 echo ""
 echo "Running integration tests..."
 export API_GATEWAY_URL="${API_GATEWAY_URL}"
 
 # Run pytest with integration tests
-pytest integration/ -v -m integration --html=integration-report.html --self-contained-html --json-report --json-report-file=integration-report.json --tb=short
+pytest integration/ -v -m integration \
+    --html=integration-report.html \
+    --self-contained-html \
+    --json-report \
+    --json-report-file=integration-report.json \
+    --tb=short
 
 TEST_EXIT_CODE=$?
+
+# Deactivate virtual environment
+deactivate
 
 echo ""
 if [ $TEST_EXIT_CODE -eq 0 ]; then
@@ -46,4 +64,3 @@ fi
 
 # Move back to root
 cd ..
-

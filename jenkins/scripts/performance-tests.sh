@@ -19,9 +19,19 @@ echo "Run Time: ${RUN_TIME}"
 echo "========================================="
 
 echo ""
-echo "Installing test dependencies..."
+echo "Setting up Python environment..."
 cd tests
-python3 -m pip install -q -r requirements.txt
+
+# Create virtual environment if it doesn't exist
+if [ ! -d "venv" ]; then
+    echo "Creating Python virtual environment..."
+    python3 -m venv venv
+fi
+
+# Activate virtual environment and install dependencies
+echo "Installing test dependencies in virtual environment..."
+source venv/bin/activate
+pip install -q -r requirements.txt
 
 # Run Locust performance tests
 echo ""
@@ -36,6 +46,9 @@ locust -f performance/locustfile.py \
     --headless
 
 TEST_EXIT_CODE=$?
+
+# Deactivate virtual environment
+deactivate
 
 # Generate performance summary
 echo ""
@@ -62,4 +75,3 @@ fi
 
 # Move back to root
 cd ..
-
