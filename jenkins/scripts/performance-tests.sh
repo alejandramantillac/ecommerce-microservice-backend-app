@@ -59,6 +59,7 @@ echo "========================================="
 echo ""
 if [ $TEST_EXIT_CODE -eq 0 ]; then
     echo "✓ Performance tests completed successfully"
+fi
 
 # Move back to root
 cd ..
