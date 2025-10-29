@@ -27,7 +27,7 @@ def getServicesList() {
                 cpuLimit: '500m'
             ],
             healthPath: '/user-service/actuator/health',
-            replicas: [dev: 1, staging: 1, prod: 2]
+            replicas: [dev: 1, staging: 1, prod: 1]
         ],
 
         [
@@ -47,7 +47,7 @@ def getServicesList() {
                 cpuLimit: '500m'
             ],
             healthPath: '/product-service/actuator/health',
-            replicas: [dev: 1, staging: 1, prod: 2]
+            replicas: [dev: 1, staging: 1, prod: 1]
         ],
 
         [
@@ -67,7 +67,7 @@ def getServicesList() {
                 cpuLimit: '500m'
             ],
             healthPath: '/favourite-service/actuator/health',
-            replicas: [dev: 1, staging: 1, prod: 2]
+            replicas: [dev: 1, staging: 1, prod: 1]
         ],
 
         [
@@ -87,7 +87,7 @@ def getServicesList() {
                 cpuLimit: '500m'
             ],
             healthPath: '/app/actuator/health',
-            replicas: [dev: 1, staging: 1, prod: 2]
+            replicas: [dev: 1, staging: 1, prod: 1]
         ],
 
         // ========================================
@@ -150,7 +150,7 @@ def getServicesList() {
                 cpuLimit: '500m'
             ],
             healthPath: '/actuator/health',
-            replicas: [dev: 1, staging: 1, prod: 3]
+            replicas: [dev: 1, staging: 1, prod: 1]
         ],
 
         // ========================================
