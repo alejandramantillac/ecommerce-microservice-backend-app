@@ -27,7 +27,3 @@ output "storage_account_name" {
   value = module.storage.storage_account_name
 }
 
-output "postgres_fqdn" {
-  value = module.database.server_fqdn
-}
-

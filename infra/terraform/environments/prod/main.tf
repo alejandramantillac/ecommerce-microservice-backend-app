@@ -77,23 +77,4 @@ module "aks" {
   tags                 = local.base_tags
 }
 
-module "database" {
-  source = "../../modules/database"
-
-  resource_group_name           = azurerm_resource_group.this.name
-  location                      = azurerm_resource_group.this.location
-  server_name                   = "${local.sanitized_name}-pg"
-  admin_username                = var.db_admin_username
-  admin_password                = var.db_admin_password
-  engine_version                = var.db_engine_version
-  sku_name                      = var.db_sku_name
-  storage_mb                    = var.db_storage_mb
-  backup_retention_days         = var.db_backup_retention_days
-  delegated_subnet_id           = lookup(module.networking.private_subnet_ids, var.db_subnet_key, null)
-  virtual_network_id            = module.networking.vnet_id
-  public_network_access_enabled = var.db_public_network_access
-  allowed_cidrs                 = var.db_allowed_cidrs
-  enable_high_availability      = var.db_enable_ha
-  tags                          = local.base_tags
-}
 
