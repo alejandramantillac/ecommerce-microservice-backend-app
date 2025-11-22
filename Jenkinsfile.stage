@@ -6,6 +6,7 @@ pipeline {
     
     environment {
         TARGET_ENVIRONMENT = 'staging'
+        TF_STAGING_APPLIED = 'false'
     }
     
     options {
@@ -14,6 +15,21 @@ pipeline {
     }
     
     stages {
+        stage('Provision Infrastructure (Terraform)') {
+            steps {
+                script {
+                    echo "Provisioning staging infrastructure via Terraform..."
+                    sh '''
+                        set -e
+                        cd infra/terraform/environments/staging
+                        terraform init -input=false
+                        terraform apply -input=false -auto-approve -var-file=staging.tfvars
+                    '''
+                    env.TF_STAGING_APPLIED = 'true'
+                }
+            }
+        }
+
         stage('Initialize') {
             steps {
                 deleteDir()
@@ -137,13 +153,30 @@ pipeline {
                 commonFunctions.notifySuccess(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
                 echo "All tests passed - ready for production!"
             }
-            cleanWs()
         }
         failure {
             script {
                 def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                 commonFunctions.notifyFailure(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
                 echo "Consider rolling back staging deployment"
+            }
+        }
+        always {
+            script {
+                if (env.TF_STAGING_APPLIED == 'true') {
+                    echo "Destroying staging infrastructure via Terraform..."
+                    try {
+                        sh '''
+                            set +e
+                            cd infra/terraform/environments/staging
+                            terraform destroy -input=false -auto-approve -var-file=staging.tfvars
+                        '''
+                    } catch (err) {
+                        echo "Terraform destroy failed: ${err}"
+                    }
+                } else {
+                    echo "Skipping Terraform destroy (infrastructure was not provisioned by this run)."
+                }
             }
             cleanWs()
         }

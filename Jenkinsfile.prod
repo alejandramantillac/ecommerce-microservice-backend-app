@@ -7,6 +7,7 @@ pipeline {
     environment {
         TARGET_ENVIRONMENT = 'production'
         BASE_RELEASE_VERSION = '1.0'
+        TF_PROD_APPLIED = 'false'
     }
     
     options {
@@ -15,6 +16,21 @@ pipeline {
     }
     
     stages {
+        stage('Provision Infrastructure (Terraform)') {
+            steps {
+                script {
+                    echo "Provisioning production infrastructure via Terraform..."
+                    sh '''
+                        set -e
+                        cd infra/terraform/environments/prod
+                        terraform init -input=false
+                        terraform apply -input=false -auto-approve -var-file=prod.tfvars
+                    '''
+                    env.TF_PROD_APPLIED = 'true'
+                }
+            }
+        }
+
         stage('Initialize') {
             steps {
                 deleteDir()
@@ -313,7 +329,6 @@ pipeline {
                 
                 commonFunctions.notifySuccess(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
             }
-            cleanWs()
         }
         failure {
             script {
@@ -331,7 +346,6 @@ pipeline {
                 
                 commonFunctions.notifyFailure(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
             }
-            cleanWs()
         }
         unstable {
             script {
@@ -339,6 +353,24 @@ pipeline {
                 echo "⚠️  Pipeline completed with warnings"
                 echo "Review test results before production use"
                 echo "========================================="
+            }
+        }
+        always {
+            script {
+                if (env.TF_PROD_APPLIED == 'true') {
+                    echo "Destroying production infrastructure via Terraform..."
+                    try {
+                        sh '''
+                            set +e
+                            cd infra/terraform/environments/prod
+                            terraform destroy -input=false -auto-approve -var-file=prod.tfvars
+                        '''
+                    } catch (err) {
+                        echo "Terraform destroy failed: ${err}"
+                    }
+                } else {
+                    echo "Skipping Terraform destroy (infrastructure was not provisioned by this run)."
+                }
             }
             cleanWs()
         }
