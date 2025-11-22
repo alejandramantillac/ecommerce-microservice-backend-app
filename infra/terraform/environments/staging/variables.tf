@@ -78,7 +78,7 @@ variable "storage_replication_type" {
 # AKS
 variable "kubernetes_version" {
   type    = string
-  default = "1.28.9"
+  default = "1.32.9"
 }
 
 variable "aks_node_vm_size" {
