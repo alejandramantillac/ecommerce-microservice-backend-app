@@ -20,9 +20,9 @@ pipeline {
                 script {
                     echo "Provisioning staging infrastructure via Terraform..."
                     withCredentials([file(credentialsId: 'azure-sp', variable: 'AZURE_AUTH_JSON')]) {
-                        sh '''
+                        sh """
                             set -e
-                            eval $(python3 <<'PY'
+                            eval \$(python3 <<'PY'
 import json, os
 with open(os.environ["AZURE_AUTH_JSON"]) as f:
     data = json.load(f)
@@ -40,8 +40,15 @@ PY
                             terraform version
                             terraform init -input=false
                             terraform apply -input=false -auto-approve -var-file=staging.tfvars
-                        '''
+                            RG_NAME=\$(terraform output -raw resource_group_name)
+                            AKS_NAME=\$(terraform output -raw aks_cluster_name)
+                            mkdir -p "${env.WORKSPACE}/.kube"
+                            rm -f "${env.WORKSPACE}/.kube/${env.TARGET_ENVIRONMENT}-config"
+                            az login --service-principal -u "$ARM_CLIENT_ID" -p "$ARM_CLIENT_SECRET" --tenant "$ARM_TENANT_ID" >/dev/null
+                            az aks get-credentials --resource-group "\$RG_NAME" --name "\$AKS_NAME" --file "${env.WORKSPACE}/.kube/${env.TARGET_ENVIRONMENT}-config" --overwrite-existing
+                        """
                     }
+                    env.KUBE_CONFIG_PATH = "${env.WORKSPACE}/.kube/${env.TARGET_ENVIRONMENT}-config"
                     env.TF_STAGING_APPLIED = 'true'
                 }
             }
@@ -59,8 +66,6 @@ PY
                     // Set environment variables from commonVars
                     env.REGISTRY = commonVars.getRegistry()
                     env.DOCKERHUB = commonVars.getDockerHubCredential()
-                    env.KUBECONFIG_CREDENTIAL = commonVars.getKubeConfigCredential()
-                    
                     commonFunctions.initializePipelineVariables()
                     
                     def namespaces = commonVars.getNamespaces()
@@ -130,7 +135,7 @@ PY
         stage('Deploy to Staging') {
             steps {
                 unstash 'workspace'
-                withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIAL}", variable: 'KCFG')]) {
+                withEnv(["KCFG=${env.KUBE_CONFIG_PATH}"]) {
                     script {
                         def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                         echo "Deploying to staging environment..."
@@ -148,7 +153,7 @@ PY
 
         stage('Run Tests') {
             steps {
-                withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIAL}", variable: 'KCFG')]) {
+                withEnv(["KCFG=${env.KUBE_CONFIG_PATH}"]) {
                     script {
                         def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                         echo "Running all test suites..."

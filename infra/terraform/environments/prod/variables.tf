@@ -78,7 +78,7 @@ variable "storage_replication_type" {
 # AKS
 variable "kubernetes_version" {
   type    = string
-  default = "1.29.0"
+  default = "1.28.9"
 }
 
 variable "aks_node_vm_size" {
@@ -134,16 +134,6 @@ variable "aks_docker_bridge_cidr" {
 variable "aks_outbound_type" {
   type    = string
   default = "loadBalancer"
-}
-
-variable "aks_enable_oms" {
-  type    = bool
-  default = true
-}
-
-variable "aks_log_retention_days" {
-  type    = number
-  default = 30
 }
 
 # Database
