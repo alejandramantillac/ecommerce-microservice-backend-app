@@ -100,6 +100,9 @@ def deployToKubernetes(environment, namespace, registry, imageTag, changedServic
     echo "Namespace: ${namespace}"
     echo "========================================="
     
+    // PASO 0: Ensure namespace exists before applying resources
+    ensureNamespace(namespace)
+
     // PASO 1: Apply ConfigMap first (services depend on it)
     echo "Step 1: Applying ConfigMap for ${environment}..."
     applyConfigMap(environment, namespace)
@@ -137,6 +140,13 @@ def deployToKubernetes(environment, namespace, registry, imageTag, changedServic
     if (!businessDeployStages.isEmpty()) {
         parallel businessDeployStages
     }
+}
+
+def ensureNamespace(namespace) {
+    sh """
+        kubectl --kubeconfig="\${KCFG}" get ns ${namespace} >/dev/null 2>&1 || \
+        kubectl --kubeconfig="\${KCFG}" create namespace ${namespace}
+    """
 }
 
 def applyConfigMap(environment, namespace) {
