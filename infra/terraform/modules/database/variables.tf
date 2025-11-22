@@ -111,12 +111,6 @@ variable "database_charset" {
   default = "UTF8"
 }
 
-variable "prevent_destroy" {
-  type        = bool
-  description = "Evitar destrucción accidental."
-  default     = true
-}
-
 variable "tags" {
   type    = map(string)
   default = {}

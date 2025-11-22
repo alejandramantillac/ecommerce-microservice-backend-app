@@ -34,10 +34,6 @@ resource "azurerm_postgresql_flexible_server" "this" {
     standby_availability_zone = var.enable_high_availability ? var.high_availability_zone : null
   }
 
-  lifecycle {
-    prevent_destroy = var.prevent_destroy
-  }
-
   dynamic "network" {
     for_each = var.delegated_subnet_id != null ? [1] : []
     content {
