@@ -53,10 +53,10 @@ variable "node_max_count" {
   default     = 3
 }
 
-variable "node_auto_scaling" {
+variable "enable_auto_scaling" {
   description = "Habilitar auto scaling en el node pool."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "node_os_disk_size_gb" {
@@ -105,24 +105,6 @@ variable "outbound_type" {
   description = "Tipo de salida (loadBalancer, userDefinedRouting)."
   type        = string
   default     = "loadBalancer"
-}
-
-variable "enable_oms_agent" {
-  description = "Habilitar integración con Log Analytics."
-  type        = bool
-  default     = true
-}
-
-variable "log_analytics_workspace_id" {
-  description = "ID de un workspace existente (opcional)."
-  type        = string
-  default     = null
-}
-
-variable "log_retention_days" {
-  description = "Retención para el workspace creado automáticamente."
-  type        = number
-  default     = 30
 }
 
 variable "tags" {

@@ -1,18 +1,3 @@
-locals {
-  log_analytics_workspace_id = var.log_analytics_workspace_id != null ? var.log_analytics_workspace_id : (var.enable_oms_agent ? azurerm_log_analytics_workspace.this[0].id : null)
-}
-
-resource "azurerm_log_analytics_workspace" "this" {
-  count               = var.enable_oms_agent && var.log_analytics_workspace_id == null ? 1 : 0
-  name                = "${var.name}-logs"
-  location            = var.location
-  resource_group_name = var.resource_group_name
-  sku                 = "PerGB2018"
-  retention_in_days   = var.log_retention_days
-
-  tags = merge(var.tags, { Purpose = "aks-monitoring" })
-}
-
 resource "azurerm_kubernetes_cluster" "this" {
   name                = var.name
   location            = var.location
@@ -25,8 +10,8 @@ resource "azurerm_kubernetes_cluster" "this" {
     name                 = "system"
     vm_size              = var.node_vm_size
     node_count           = var.node_count
-    min_count            = var.node_min_count
-    max_count            = var.node_max_count
+    min_count            = var.enable_auto_scaling ? var.node_min_count : null
+    max_count            = var.enable_auto_scaling ? var.node_max_count : null
     vnet_subnet_id       = var.vnet_subnet_id
     os_disk_size_gb      = var.node_os_disk_size_gb
     type                 = "VirtualMachineScaleSets"
@@ -46,8 +31,6 @@ resource "azurerm_kubernetes_cluster" "this" {
     service_cidr   = var.service_cidr
     outbound_type  = var.outbound_type
   }
-
-
   tags = merge(var.tags, {
     Name = var.name
   })

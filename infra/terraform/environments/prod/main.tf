@@ -63,8 +63,7 @@ module "aks" {
   vnet_subnet_id       = module.networking.private_subnet_ids[var.aks_subnet_key]
   node_vm_size         = var.aks_node_vm_size
   node_count           = var.aks_node_count
-  node_min_count       = var.aks_node_min
-  node_max_count       = var.aks_node_max
+  enable_auto_scaling  = false
   node_os_disk_size_gb = var.aks_node_os_disk_gb
   max_pods_per_node    = var.aks_max_pods
   network_plugin       = var.aks_network_plugin
@@ -72,8 +71,6 @@ module "aks" {
   dns_service_ip       = var.aks_dns_service_ip
   docker_bridge_cidr   = var.aks_docker_bridge_cidr
   outbound_type        = var.aks_outbound_type
-  enable_oms_agent     = var.aks_enable_oms
-  log_retention_days   = var.aks_log_retention_days
   tags                 = local.base_tags
 }
 

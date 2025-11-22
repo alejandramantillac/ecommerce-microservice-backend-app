@@ -26,12 +26,11 @@ db_subnet_key  = "data"
 
 storage_replication_type = "LRS"
 
-aks_node_vm_size    = "Standard_D2s_v3"
-aks_node_count      = 2
-aks_node_min        = 2
-aks_node_max        = 3
-aks_node_os_disk_gb = 80
-aks_max_pods        = 30
+aks_node_vm_size      = "Standard_D2s_v3"
+aks_node_count        = 2
+enable_auto_scaling   = false
+aks_node_os_disk_gb   = 80
+aks_max_pods          = 30
 
 db_admin_username        = "ecomprod"
 db_admin_password        = "SuperSecureProdPwd!"
