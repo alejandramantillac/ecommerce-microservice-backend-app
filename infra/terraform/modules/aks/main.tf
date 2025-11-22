@@ -31,7 +31,6 @@ resource "azurerm_kubernetes_cluster" "this" {
     os_disk_size_gb      = var.node_os_disk_size_gb
     type                 = "VirtualMachineScaleSets"
     orchestrator_version = var.kubernetes_version
-    enable_auto_scaling  = var.node_auto_scaling
     max_pods             = var.max_pods_per_node
   }
 
@@ -42,15 +41,14 @@ resource "azurerm_kubernetes_cluster" "this" {
   role_based_access_control_enabled = var.enable_rbac
 
   network_profile {
-    network_plugin     = var.network_plugin
-    dns_service_ip     = var.dns_service_ip
-    docker_bridge_cidr = var.docker_bridge_cidr
-    service_cidr       = var.service_cidr
-    outbound_type      = var.outbound_type
+    network_plugin = var.network_plugin
+    dns_service_ip = var.dns_service_ip
+    service_cidr   = var.service_cidr
+    outbound_type  = var.outbound_type
   }
 
   dynamic "addon_profile" {
-    for_each = var.enable_oms_agent && local.log_analytics_workspace_id != null ? [1] : []
+    for_each = var.enable_oms_agent ? [1] : []
     content {
       oms_agent {
         enabled                    = true

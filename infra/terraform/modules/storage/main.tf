@@ -4,7 +4,7 @@ resource "azurerm_storage_account" "this" {
   location                  = var.location
   account_tier              = "Standard"
   account_replication_type  = var.replication_type
-  enable_https_traffic_only = true
+  https_traffic_only_enabled = true
   min_tls_version           = "TLS1_2"
 
   blob_properties {

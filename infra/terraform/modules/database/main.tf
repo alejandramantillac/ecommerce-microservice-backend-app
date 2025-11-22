@@ -1,18 +1,8 @@
 resource "azurerm_private_dns_zone" "postgres" {
   count = var.private_dns_zone_id == null && var.delegated_subnet_id != null ? 1 : 0
 
-  name                = "${var.name}.postgres.database.azure.com"
+  name                = "${var.server_name}.postgres.database.azure.com"
   resource_group_name = var.resource_group_name
-}
-
-resource "azurerm_private_dns_zone_virtual_network_link" "postgres" {
-  count = length(azurerm_private_dns_zone.postgres) > 0 ? 1 : 0
-
-  name                  = "${var.name}-dnslink"
-  resource_group_name   = var.resource_group_name
-  private_dns_zone_name = azurerm_private_dns_zone.postgres[0].name
-  virtual_network_id    = var.virtual_network_id
-  registration_enabled  = false
 }
 
 resource "azurerm_postgresql_flexible_server" "this" {
@@ -35,9 +25,9 @@ resource "azurerm_postgresql_flexible_server" "this" {
   }
 
   dynamic "network" {
-    for_each = var.delegated_subnet_id != null ? [1] : []
+    for_each = var.delegated_subnet_id != null ? [var.delegated_subnet_id] : []
     content {
-      delegated_subnet_id = var.delegated_subnet_id
+      delegated_subnet_id = network.value
       private_dns_zone_id = var.private_dns_zone_id != null ? var.private_dns_zone_id : azurerm_private_dns_zone.postgres[0].id
     }
   }
