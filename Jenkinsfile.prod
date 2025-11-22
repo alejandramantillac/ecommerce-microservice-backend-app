@@ -26,21 +26,22 @@ pipeline {
                         string(credentialsId: 'ARM_SUBSCRIPTION_ID', variable: 'ARM_SUBSCRIPTION_ID'),
                         string(credentialsId: 'ARM_TENANT_ID', variable: 'ARM_TENANT_ID')
                     ]) {
-                        sh """
+                        sh '''
                             set -e
                             cd infra/terraform/environments/prod
                             terraform init -input=false
                             terraform apply -input=false -auto-approve -var-file=prod.tfvars
-                            RG_NAME=\$(terraform output -raw resource_group_name)
-                            AKS_NAME=\$(terraform output -raw aks_cluster_name)
-                            mkdir -p "${env.WORKSPACE}/.kube"
-                            rm -f "${env.WORKSPACE}/.kube/prod-config"
+                            RG_NAME=$(terraform output -raw resource_group_name)
+                            AKS_NAME=$(terraform output -raw aks_cluster_name)
+                            mkdir -p "${WORKSPACE}/.kube"
+                            rm -f "${WORKSPACE}/.kube/prod-config"
                             az login --service-principal -u "$ARM_CLIENT_ID" -p "$ARM_CLIENT_SECRET" --tenant "$ARM_TENANT_ID" >/dev/null
-                            az aks get-credentials --resource-group "\$RG_NAME" --name "\$AKS_NAME" --file "${env.WORKSPACE}/.kube/prod-config" --overwrite-existing
-                        """
+                            az aks get-credentials --resource-group "$RG_NAME" --name "$AKS_NAME" --file "${WORKSPACE}/.kube/prod-config" --overwrite-existing
+                        '''
                     }
                     env.PROD_KUBE_CONFIG_PATH = "${env.WORKSPACE}/.kube/prod-config"
                     env.TF_PROD_APPLIED = 'true'
+                    stash name: 'prod-kubeconfig', includes: '.kube/prod-config'
                 }
             }
         }
@@ -274,6 +275,7 @@ pipeline {
         stage('Deploy to Production') {
             steps {
                 unstash 'workspace'
+                unstash 'prod-kubeconfig'
                 withEnv(["KCFG=${env.PROD_KUBE_CONFIG_PATH}"]) {
                     script {
                         def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'

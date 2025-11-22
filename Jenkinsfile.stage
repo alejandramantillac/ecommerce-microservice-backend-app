@@ -25,22 +25,23 @@ pipeline {
                         string(credentialsId: 'ARM_SUBSCRIPTION_ID', variable: 'ARM_SUBSCRIPTION_ID'),
                         string(credentialsId: 'ARM_TENANT_ID', variable: 'ARM_TENANT_ID')
                     ]) {
-                        sh """
+                        sh '''
                             set -e
                             cd infra/terraform/environments/staging
                             terraform version
                             terraform init -input=false
                             terraform apply -input=false -auto-approve -var-file=staging.tfvars
-                            RG_NAME=\$(terraform output -raw resource_group_name)
-                            AKS_NAME=\$(terraform output -raw aks_cluster_name)
-                            mkdir -p "${env.WORKSPACE}/.kube"
-                            rm -f "${env.WORKSPACE}/.kube/${env.TARGET_ENVIRONMENT}-config"
+                            RG_NAME=$(terraform output -raw resource_group_name)
+                            AKS_NAME=$(terraform output -raw aks_cluster_name)
+                            mkdir -p "${WORKSPACE}/.kube"
+                            rm -f "${WORKSPACE}/.kube/${TARGET_ENVIRONMENT}-config"
                             az login --service-principal -u "$ARM_CLIENT_ID" -p "$ARM_CLIENT_SECRET" --tenant "$ARM_TENANT_ID" >/dev/null
-                            az aks get-credentials --resource-group "\$RG_NAME" --name "\$AKS_NAME" --file "${env.WORKSPACE}/.kube/${env.TARGET_ENVIRONMENT}-config" --overwrite-existing
-                        """
+                            az aks get-credentials --resource-group "$RG_NAME" --name "$AKS_NAME" --file "${WORKSPACE}/.kube/${TARGET_ENVIRONMENT}-config" --overwrite-existing
+                        '''
                     }
                     env.KUBE_CONFIG_PATH = "${env.WORKSPACE}/.kube/${env.TARGET_ENVIRONMENT}-config"
                     env.TF_STAGING_APPLIED = 'true'
+                    stash name: 'kubeconfig', includes: ".kube/${env.TARGET_ENVIRONMENT}-config"
                 }
             }
         }
@@ -126,6 +127,7 @@ pipeline {
         stage('Deploy to Staging') {
             steps {
                 unstash 'workspace'
+                unstash 'kubeconfig'
                 withEnv(["KCFG=${env.KUBE_CONFIG_PATH}"]) {
                     script {
                         def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
