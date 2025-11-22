@@ -47,13 +47,10 @@ resource "azurerm_kubernetes_cluster" "this" {
     outbound_type  = var.outbound_type
   }
 
-  dynamic "addon_profile" {
-    for_each = var.enable_oms_agent ? [1] : []
-    content {
-      oms_agent {
-        enabled                    = true
-        log_analytics_workspace_id = local.log_analytics_workspace_id
-      }
+  addon_profile {
+    oms_agent {
+      enabled                    = var.enable_oms_agent
+      log_analytics_workspace_id = var.enable_oms_agent ? local.log_analytics_workspace_id : null
     }
   }
 

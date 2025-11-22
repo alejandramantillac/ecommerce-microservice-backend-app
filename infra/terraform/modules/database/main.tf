@@ -24,11 +24,15 @@ resource "azurerm_postgresql_flexible_server" "this" {
     standby_availability_zone = var.enable_high_availability ? var.high_availability_zone : null
   }
 
-  dynamic "network" {
-    for_each = var.delegated_subnet_id != null ? [var.delegated_subnet_id] : []
+  dynamic_network {
+    count = var.delegated_subnet_id != null ? 1 : 0
     content {
-      delegated_subnet_id = network.value
-      private_dns_zone_id = var.private_dns_zone_id != null ? var.private_dns_zone_id : azurerm_private_dns_zone.postgres[0].id
+      network {
+        delegated_subnet_id = var.delegated_subnet_id
+        private_dns_zone_id = var.private_dns_zone_id != null
+          ? var.private_dns_zone_id
+          : azurerm_private_dns_zone.postgres[0].id
+      }
     }
   }
 
