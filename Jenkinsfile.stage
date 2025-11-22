@@ -22,10 +22,20 @@ pipeline {
                     withCredentials([file(credentialsId: 'azure-sp', variable: 'AZURE_AUTH_JSON')]) {
                         sh '''
                             set -e
-                            export ARM_CLIENT_ID=$(jq -r .clientId "$AZURE_AUTH_JSON")
-                            export ARM_CLIENT_SECRET=$(jq -r .clientSecret "$AZURE_AUTH_JSON")
-                            export ARM_SUBSCRIPTION_ID=$(jq -r .subscriptionId "$AZURE_AUTH_JSON")
-                            export ARM_TENANT_ID=$(jq -r .tenantId "$AZURE_AUTH_JSON")
+                            eval $(python3 <<'PY'
+import json, os
+with open(os.environ["AZURE_AUTH_JSON"]) as f:
+    data = json.load(f)
+mapping = {
+    "clientId": "ARM_CLIENT_ID",
+    "clientSecret": "ARM_CLIENT_SECRET",
+    "subscriptionId": "ARM_SUBSCRIPTION_ID",
+    "tenantId": "ARM_TENANT_ID",
+}
+for key, env_var in mapping.items():
+    print(f'export {env_var}="{data[key]}"')
+PY
+)
                             cd infra/terraform/environments/staging
                             terraform init -input=false
                             terraform apply -input=false -auto-approve -var-file=staging.tfvars
@@ -175,10 +185,20 @@ pipeline {
                         withCredentials([file(credentialsId: 'azure-sp', variable: 'AZURE_AUTH_JSON')]) {
                             sh '''
                                 set +e
-                                export ARM_CLIENT_ID=$(jq -r .clientId "$AZURE_AUTH_JSON")
-                                export ARM_CLIENT_SECRET=$(jq -r .clientSecret "$AZURE_AUTH_JSON")
-                                export ARM_SUBSCRIPTION_ID=$(jq -r .subscriptionId "$AZURE_AUTH_JSON")
-                                export ARM_TENANT_ID=$(jq -r .tenantId "$AZURE_AUTH_JSON")
+                                eval $(python3 <<'PY'
+import json, os
+with open(os.environ["AZURE_AUTH_JSON"]) as f:
+    data = json.load(f)
+mapping = {
+    "clientId": "ARM_CLIENT_ID",
+    "clientSecret": "ARM_CLIENT_SECRET",
+    "subscriptionId": "ARM_SUBSCRIPTION_ID",
+    "tenantId": "ARM_TENANT_ID",
+}
+for key, env_var in mapping.items():
+    print(f'export {env_var}="{data[key]}"')
+PY
+)
                                 cd infra/terraform/environments/staging
                                 terraform destroy -input=false -auto-approve -var-file=staging.tfvars
                             '''
@@ -190,6 +210,8 @@ pipeline {
                     echo "Skipping Terraform destroy (infrastructure was not provisioned by this run)."
                 }
             }
+        }
+        cleanup {
             cleanWs()
         }
     }
