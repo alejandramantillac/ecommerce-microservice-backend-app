@@ -33,7 +33,7 @@ db_admin_username        = "ecomstage"
 db_admin_password        = "ChangeMeStage123!"
 db_public_network_access = false
 db_enable_ha             = false
-db_sku_name              = "Standard_B1ms"
-db_storage_mb            = 20480
+db_sku_name              = "Standard_D2s_v3"
+db_storage_mb            = 32768
 db_backup_retention_days = 7
 

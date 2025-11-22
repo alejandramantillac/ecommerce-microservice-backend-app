@@ -12,9 +12,12 @@ resource "azurerm_postgresql_flexible_server" "this" {
   create_mode                   = "Default"
   public_network_access_enabled = var.public_network_access_enabled
 
-  high_availability {
-    mode                      = var.enable_high_availability ? "ZoneRedundant" : "Disabled"
-    standby_availability_zone = var.enable_high_availability ? var.high_availability_zone : null
+  dynamic "high_availability" {
+    for_each = var.enable_high_availability ? [var.high_availability_zone] : []
+    content {
+      mode                      = "ZoneRedundant"
+      standby_availability_zone = high_availability.value
+    }
   }
 
   tags = merge(var.tags, {

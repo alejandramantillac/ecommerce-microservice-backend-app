@@ -26,7 +26,7 @@ db_subnet_key  = "data"
 
 storage_replication_type = "LRS"
 
-aks_node_vm_size    = "Standard_B2ms"
+aks_node_vm_size    = "Standard_D2s_v3"
 aks_node_count      = 2
 aks_node_min        = 2
 aks_node_max        = 3
@@ -38,6 +38,6 @@ db_admin_password        = "SuperSecureProdPwd!"
 db_public_network_access = false
 db_enable_ha             = false
 db_backup_retention_days = 14
-db_sku_name              = "Standard_B2ms"
+db_sku_name              = "Standard_D2s_v3"
 db_storage_mb            = 32768
 
