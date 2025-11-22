@@ -61,3 +61,26 @@ docker build -f "${SERVICE_NAME}/Dockerfile" \
 echo "✓ Successfully built ${SERVICE_NAME}:${IMAGE_TAG}"
 echo ""
 
+# Scan Docker image with Trivy
+echo "Step 4.5: Scanning Docker image for vulnerabilities with Trivy..."
+if [ -f "jenkins/scripts/scan-image-trivy.sh" ]; then
+    chmod +x jenkins/scripts/scan-image-trivy.sh
+    
+    # Get severity threshold from environment or use default
+    TRIVY_SEVERITY="${TRIVY_SEVERITY_THRESHOLD:-CRITICAL,HIGH}"
+    TRIVY_EXIT_ON_FAILURE="${TRIVY_EXIT_ON_FAILURE:-true}"
+    
+    jenkins/scripts/scan-image-trivy.sh \
+        "${REGISTRY}/${SERVICE_NAME}:${IMAGE_TAG}" \
+        "${TRIVY_SEVERITY}" \
+        "${TRIVY_EXIT_ON_FAILURE}" \
+        "json" || {
+        echo "✗ Trivy scan failed for ${SERVICE_NAME}"
+        exit 1
+    }
+else
+    echo "⚠ Warning: scan-image-trivy.sh not found, skipping vulnerability scan"
+fi
+
+echo ""
+

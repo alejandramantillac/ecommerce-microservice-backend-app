@@ -251,4 +251,17 @@ def getSonarHostUrl() {
     return 'http://localhost:9000'
 }
 
+// Trivy Configuration
+def getTrivySeverityThreshold() {
+    return env.TRIVY_SEVERITY_THRESHOLD ?: 'CRITICAL,HIGH'
+}
+
+def getTrivyExitOnFailure() {
+    return env.TRIVY_EXIT_ON_FAILURE ?: 'true'
+}
+
+def getTrivyReportFormat() {
+    return env.TRIVY_REPORT_FORMAT ?: 'json'
+}
+
 return this
