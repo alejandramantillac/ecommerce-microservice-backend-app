@@ -27,6 +27,26 @@ mvn clean compile -pl "${SERVICE_NAME}" -am
 echo "Step 2: Running unit tests for ${SERVICE_NAME}..."
 mvn test -pl "${SERVICE_NAME}" -am
 
+# Run SonarQube analysis
+echo "Step 2.5: Running SonarQube analysis for ${SERVICE_NAME}..."
+if [ -f "${SERVICE_NAME}/sonar-project.properties" ]; then
+    if [ -z "${SONAR_TOKEN}" ]; then
+        echo "⚠ Warning: SONAR_TOKEN not set, skipping SonarQube analysis"
+    else
+        mvn sonar:sonar \
+            -pl "${SERVICE_NAME}" \
+            -am \
+            -Dsonar.projectKey="ecommerce-microservice-backend:${SERVICE_NAME}" \
+            -Dsonar.host.url="${SONAR_HOST_URL:-http://localhost:9000}" \
+            -Dsonar.login="${SONAR_TOKEN}" \
+            -DskipTests || {
+            echo "⚠ Warning: SonarQube analysis failed, but continuing build..."
+        }
+    fi
+else
+    echo "⚠ Warning: sonar-project.properties not found for ${SERVICE_NAME}, skipping SonarQube analysis"
+fi
+
 # Package the service
 echo "Step 3: Packaging ${SERVICE_NAME}..."
 mvn package -pl "${SERVICE_NAME}" -am -DskipTests

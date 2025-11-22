@@ -247,4 +247,8 @@ def getNamespaces() {
     ]
 }
 
+def getSonarHostUrl() {
+    return 'http://localhost:9000'
+}
+
 return this
