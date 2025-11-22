@@ -1,10 +1,3 @@
-resource "azurerm_private_dns_zone" "postgres" {
-  count = var.private_dns_zone_id == null && var.delegated_subnet_id != null ? 1 : 0
-
-  name                = "${var.server_name}.postgres.database.azure.com"
-  resource_group_name = var.resource_group_name
-}
-
 resource "azurerm_postgresql_flexible_server" "this" {
   name                          = var.server_name
   resource_group_name           = var.resource_group_name
@@ -22,18 +15,6 @@ resource "azurerm_postgresql_flexible_server" "this" {
   high_availability {
     mode                      = var.enable_high_availability ? "ZoneRedundant" : "Disabled"
     standby_availability_zone = var.enable_high_availability ? var.high_availability_zone : null
-  }
-
-  dynamic "network" {
-    for_each = var.delegated_subnet_id != null ? [var.delegated_subnet_id] : []
-    content {
-      delegated_subnet_id = network.value
-      private_dns_zone_id = (
-        var.private_dns_zone_id != null
-        ? var.private_dns_zone_id
-        : azurerm_private_dns_zone.postgres[0].id
-      )
-    }
   }
 
   tags = merge(var.tags, {
