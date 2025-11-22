@@ -33,15 +33,53 @@ if [ -f "${SERVICE_NAME}/sonar-project.properties" ]; then
     if [ -z "${SONAR_TOKEN}" ]; then
         echo "⚠ Warning: SONAR_TOKEN not set, skipping SonarQube analysis"
     else
-        mvn sonar:sonar \
+        SONAR_PROJECT_KEY="ecommerce-microservice-backend:${SERVICE_NAME}"
+        SONAR_HOST="${SONAR_HOST_URL:-http://localhost:9000}"
+        
+        # Run SonarQube analysis
+        echo "Running SonarQube analysis..."
+        if ! mvn sonar:sonar \
             -pl "${SERVICE_NAME}" \
             -am \
-            -Dsonar.projectKey="ecommerce-microservice-backend:${SERVICE_NAME}" \
-            -Dsonar.host.url="${SONAR_HOST_URL:-http://localhost:9000}" \
+            -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
+            -Dsonar.host.url="${SONAR_HOST}" \
             -Dsonar.login="${SONAR_TOKEN}" \
-            -DskipTests || {
-            echo "⚠ Warning: SonarQube analysis failed, but continuing build..."
-        }
+            -DskipTests; then
+            echo "✗ SonarQube analysis failed"
+            exit 1
+        fi
+        
+        echo "✓ SonarQube analysis completed"
+        
+        # Check Quality Gate
+        echo ""
+        echo "Step 2.6: Checking SonarQube Quality Gate..."
+        if [ -f "jenkins/scripts/check-sonarqube-quality-gate.sh" ]; then
+            chmod +x jenkins/scripts/check-sonarqube-quality-gate.sh
+            
+            # Check if Quality Gate enforcement is enabled (default: true)
+            ENFORCE_QUALITY_GATE="${SONAR_ENFORCE_QUALITY_GATE:-true}"
+            
+            if [ "$ENFORCE_QUALITY_GATE" = "true" ]; then
+                jenkins/scripts/check-sonarqube-quality-gate.sh \
+                    "${SONAR_PROJECT_KEY}" \
+                    "${SONAR_HOST}" \
+                    "${SONAR_TOKEN}" \
+                    60 || {
+                    echo ""
+                    echo "✗ Build failed: Quality Gate did not pass"
+                    echo "Please fix the quality issues and try again."
+                    echo "View details in SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}"
+                    exit 1
+                }
+                echo "✓ Quality Gate PASSED"
+            else
+                echo "⚠ Quality Gate enforcement is disabled (SONAR_ENFORCE_QUALITY_GATE=false)"
+                echo "⚠ Continuing build without Quality Gate check"
+            fi
+        else
+            echo "⚠ Warning: check-sonarqube-quality-gate.sh not found, skipping Quality Gate check"
+        fi
     fi
 else
     echo "⚠ Warning: sonar-project.properties not found for ${SERVICE_NAME}, skipping SonarQube analysis"

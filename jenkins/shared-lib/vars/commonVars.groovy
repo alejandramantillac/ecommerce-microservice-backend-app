@@ -251,6 +251,11 @@ def getSonarHostUrl() {
     return 'http://localhost:9000'
 }
 
+// SonarQube Quality Gate Configuration
+def getSonarEnforceQualityGate() {
+    return env.SONAR_ENFORCE_QUALITY_GATE ?: 'true'
+}
+
 // Trivy Configuration
 def getTrivySeverityThreshold() {
     return env.TRIVY_SEVERITY_THRESHOLD ?: 'CRITICAL,HIGH'
