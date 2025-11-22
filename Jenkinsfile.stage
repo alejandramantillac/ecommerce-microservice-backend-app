@@ -37,6 +37,7 @@ for key, env_var in mapping.items():
 PY
 )
                             cd infra/terraform/environments/staging
+                            terraform version
                             terraform init -input=false
                             terraform apply -input=false -auto-approve -var-file=staging.tfvars
                         '''

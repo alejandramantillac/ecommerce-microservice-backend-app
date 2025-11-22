@@ -28,7 +28,7 @@ variable "container_name" {
 variable "account_replication_type" {
   description = "Tipo de replicación (LRS, GRS, ZRS...)."
   type        = string
-  default     = "GRS"
+  default     = "LRS"
 }
 
 variable "tags" {
