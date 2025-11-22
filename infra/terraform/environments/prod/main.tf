@@ -5,7 +5,17 @@ locals {
     Environment = var.environment
     ManagedBy   = "terraform"
   })
-  sanitized_name       = substr(regexreplace(lower(local.name_prefix), "[^a-z0-9]", ""), 0, 20)
+  sanitized_name  = substr(
+    replace(
+      replace(
+        replace(lower(local.name_prefix), "_", ""),
+        "-", ""
+      ),
+      ".", ""
+    ),
+    0,
+    20
+  )
   storage_account_name = var.storage_account_name != null ? var.storage_account_name : "${local.sanitized_name}sa"
   artifact_container   = var.artifact_container_name != null ? var.artifact_container_name : "artifacts"
   logs_container       = var.logs_container_name != null ? var.logs_container_name : "logs"

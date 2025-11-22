@@ -80,15 +80,19 @@ resource "azurerm_subnet" "private" {
   virtual_network_name = azurerm_virtual_network.this.name
   address_prefixes     = [each.value.cidr]
 
-  delegation = var.enable_private_delegation ? [{
-    name = "aks-delegation"
-    service_delegation = {
-      name = "Microsoft.ContainerService/managedClusters"
-      actions = [
-        "Microsoft.Network/virtualNetworks/subnets/action"
-      ]
+  dynamic "delegation" {
+    for_each = var.enable_private_delegation ? ["aks"] : []
+    content {
+      name = "${var.name}-${each.key}-delegation"
+
+      service_delegation {
+        name = "Microsoft.ContainerService/managedClusters"
+        actions = [
+          "Microsoft.Network/virtualNetworks/subnets/action"
+        ]
+      }
     }
-  }] : []
+  }
 
   service_endpoints = var.private_subnet_service_endpoints
 }
