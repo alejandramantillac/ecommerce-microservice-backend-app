@@ -6,7 +6,7 @@ pipeline {
     
     environment {
         TARGET_ENVIRONMENT = 'production'
-        BASE_RELEASE_VERSION = '1.0'
+        BASE_RELEASE_VERSION = '0.0.0'  // Base version for semantic versioning
         TF_PROD_APPLIED = 'false'
     }
     
@@ -60,7 +60,16 @@ pipeline {
                     env.K8S_NAMESPACE_PROD = namespaces.prod
                     env.IMAGE_TAG = commonFunctions.generateImageTag(env.GIT_BRANCH, env.GIT_COMMIT_SHORT)
                     env.LATEST_TAG = "latest"
-                    env.RELEASE_VERSION = "${env.BASE_RELEASE_VERSION}.${env.BUILD_NUMBER}"
+                    
+                    // Calculate semantic version automatically based on commits
+                    echo "Calculating semantic version from commits..."
+                    env.RELEASE_VERSION = sh(
+                        script: """
+                            chmod +x jenkins/scripts/calculate-semantic-version.sh
+                            jenkins/scripts/calculate-semantic-version.sh "${env.BASE_RELEASE_VERSION}"
+                        """,
+                        returnStdout: true
+                    ).trim()
                     
                     echo "========================================="
                     echo "Production Release Pipeline"
