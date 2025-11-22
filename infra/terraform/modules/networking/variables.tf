@@ -48,7 +48,7 @@ variable "private_subnet_service_endpoints" {
 variable "enable_private_delegation" {
   description = "Delegar subnets privadas para AKS."
   type        = bool
-  default     = true
+  default     = false
 }
 
 variable "tags" {
