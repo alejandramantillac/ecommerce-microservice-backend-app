@@ -19,12 +19,18 @@ pipeline {
             steps {
                 script {
                     echo "Provisioning staging infrastructure via Terraform..."
-                    sh '''
-                        set -e
-                        cd infra/terraform/environments/staging
-                        terraform init -input=false
-                        terraform apply -input=false -auto-approve -var-file=staging.tfvars
-                    '''
+                    withCredentials([file(credentialsId: 'azure-sp', variable: 'AZURE_AUTH_JSON')]) {
+                        sh '''
+                            set -e
+                            export ARM_CLIENT_ID=$(jq -r .clientId "$AZURE_AUTH_JSON")
+                            export ARM_CLIENT_SECRET=$(jq -r .clientSecret "$AZURE_AUTH_JSON")
+                            export ARM_SUBSCRIPTION_ID=$(jq -r .subscriptionId "$AZURE_AUTH_JSON")
+                            export ARM_TENANT_ID=$(jq -r .tenantId "$AZURE_AUTH_JSON")
+                            cd infra/terraform/environments/staging
+                            terraform init -input=false
+                            terraform apply -input=false -auto-approve -var-file=staging.tfvars
+                        '''
+                    }
                     env.TF_STAGING_APPLIED = 'true'
                 }
             }
@@ -166,11 +172,17 @@ pipeline {
                 if (env.TF_STAGING_APPLIED == 'true') {
                     echo "Destroying staging infrastructure via Terraform..."
                     try {
-                        sh '''
-                            set +e
-                            cd infra/terraform/environments/staging
-                            terraform destroy -input=false -auto-approve -var-file=staging.tfvars
-                        '''
+                        withCredentials([file(credentialsId: 'azure-sp', variable: 'AZURE_AUTH_JSON')]) {
+                            sh '''
+                                set +e
+                                export ARM_CLIENT_ID=$(jq -r .clientId "$AZURE_AUTH_JSON")
+                                export ARM_CLIENT_SECRET=$(jq -r .clientSecret "$AZURE_AUTH_JSON")
+                                export ARM_SUBSCRIPTION_ID=$(jq -r .subscriptionId "$AZURE_AUTH_JSON")
+                                export ARM_TENANT_ID=$(jq -r .tenantId "$AZURE_AUTH_JSON")
+                                cd infra/terraform/environments/staging
+                                terraform destroy -input=false -auto-approve -var-file=staging.tfvars
+                            '''
+                        }
                     } catch (err) {
                         echo "Terraform destroy failed: ${err}"
                     }
