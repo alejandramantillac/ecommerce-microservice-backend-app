@@ -392,29 +392,30 @@ def scanImagesWithTrivy(imageListPath, reportDir, summaryCsvPath, summaryJsonPat
 def runTrivyScans(changedServices, registry, imageTag) {
     def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
     def serviceList = changedServices.split(',')
+    def imagesFile = "trivy-images.txt"
+    def reportDir = "trivy-reports/services"
+    sh "mkdir -p ${reportDir}"
 
-    for (serviceName in serviceList) {
-        def service = serviceName.trim()
-        def serviceConfig = commonVars.getServiceConfig(service)
-        if (serviceConfig?.external) {
-            echo "Skipping Trivy scan for external service: ${service}"
-            continue
-        }
+    // Escritura de imágenes a escanear en un archivo (una por línea)
+    writeFile file: imagesFile, text: (
+        serviceList.collect { serviceName ->
+            def service = serviceName.trim()
+            def serviceConfig = commonVars.getServiceConfig(service)
+            if (serviceConfig?.external) {
+                echo "Skipping Trivy scan for external service: ${service}"
+                return null
+            }
+            echo "Adding image for Trivy scan: ${registry}/${service}:${imageTag}"
+            return "${registry}/${service}:${imageTag}"
+        }.findAll { it != null }.join('\n') + '\n'
+    )
 
-        echo "Starting Trivy scan for ${service}..."
+    def summaryCsvPath = "${reportDir}/summary.csv"
+    def summaryJsonPath = "${reportDir}/summary.json"
+    def severity = commonVars.getTrivySeverityThreshold()
+    def statusPath = "${reportDir}/summary-status.properties"
 
-        // Reuse scanImagesWithTrivy for image-based scanning.
-        def imageName = "${registry}/${service}:${imageTag}"
-        def reportDir = "trivy-reports/${service}"
-        def summaryCsvPath = "${reportDir}/summary.csv"
-        def summaryJsonPath = "${reportDir}/summary.json"
-        // Use a default severity or it can be parameterized if needed
-        def severity = commonVars.getTrivySeverityThreshold()
-
-        // Call the reusable Trivy scan function
-        def statusPath = "${reportDir}/summary-status.properties"
-        scanImagesWithTrivy(imageName, reportDir, summaryCsvPath, summaryJsonPath, severity, statusPath)
-    }
+    scanImagesWithTrivy(imagesFile, reportDir, summaryCsvPath, summaryJsonPath, severity, statusPath)
 
     archiveArtifacts artifacts: 'trivy-reports/**/*.json', fingerprint: true, allowEmptyArchive: true
 }
