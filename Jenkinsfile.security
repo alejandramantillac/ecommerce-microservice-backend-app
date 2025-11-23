@@ -44,6 +44,7 @@ pipeline {
         stage('Fetch Images') {
             steps {
                 script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                     env.SECURITY_KUBECONFIG = commonFunctions.getAndConfigureKubeConfigFromTerraform(env.K8S_NAMESPACE, env.ARM_CLIENT_ID, env.ARM_CLIENT_SECRET, env.ARM_TENANT_ID)
                     env.SECURITY_IMAGE_LIST = commonFunctions.collectPodImages(env.K8S_NAMESPACE, env.SECURITY_KUBECONFIG, env.SECURITY_REPORT_DIR)
                 }
@@ -53,6 +54,7 @@ pipeline {
         stage('Scan Images with Trivy') {
             steps {
                 script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                     commonFunctions.scanImagesWithTrivy(env.SECURITY_IMAGE_LIST, env.SECURITY_REPORT_DIR, env.SECURITY_SUMMARY_CSV, env.SECURITY_SUMMARY_JSON, env.SCAN_SEVERITY)
                 }
             }
@@ -60,7 +62,10 @@ pipeline {
 
         stage('Generate Security Dashboard') {
             steps {
-                commonFunctions.generateSecurityDashboard(env.SECURITY_SUMMARY_JSON, env.SECURITY_DASHBOARD)
+                script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    commonFunctions.generateSecurityDashboard(env.SECURITY_SUMMARY_JSON, env.SECURITY_DASHBOARD)
+                }
             }
         }
 
