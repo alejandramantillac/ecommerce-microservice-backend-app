@@ -62,6 +62,15 @@ pipeline {
                 }
             }
         }
+
+        stage('Trivy Scan') {
+            steps {
+                script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    commonFunctions.runTrivyScans(env.CHANGED_SERVICES, env.REGISTRY, env.IMAGE_TAG)
+                }
+            }
+        }
         
         stage('SonarCloud Analysis') {
             steps {
@@ -121,6 +130,12 @@ pipeline {
                 commonFunctions.notifyFailure(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
             }
             cleanWs()
+        }
+        always {
+            script {
+                def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                commonFunctions.cleanSpace()
+            }
         }
     }
 }

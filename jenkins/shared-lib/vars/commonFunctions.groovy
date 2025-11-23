@@ -305,4 +305,32 @@ def runSonarAnalyses(changedServices) {
     }
 }
 
+def runTrivyScans(changedServices, registry, imageTag) {
+    def serviceList = changedServices.split(',')
+    for (serviceName in serviceList) {
+        def service = serviceName.trim()
+        def serviceConfig = commonVars.getServiceConfig(service)
+        if (serviceConfig?.external) {
+            echo "Skipping Trivy scan for external service: ${service}"
+            continue
+        }
+
+        echo "Starting Trivy scan for ${service}..."
+
+        sh """
+            chmod +x jenkins/scripts/trivy-service.sh
+            jenkins/scripts/trivy-service.sh "${serviceName}" "${registry}" "${imageTag}"
+        """
+    }
+}
+
+def cleanSpace() {
+    sh """
+        docker system prune -af               # Necesita Docker group
+        rm -rf /var/lib/jenkins/.cache/trivy/*
+        rm -rf /var/lib/jenkins/.sonar/cache/*
+        find /var/lib/jenkins/.m2/repository -type f -mtime +14 -delete
+    """
+}
+
 return this
