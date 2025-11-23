@@ -1,4 +1,9 @@
 // Jenkinsfile for Scheduled Security Scans
+@NonCPS
+def parseJsonText(String jsonText) {
+    return new groovy.json.JsonSlurperClassic().parseText(jsonText)
+}
+
 pipeline {
     agent any
 
@@ -84,7 +89,8 @@ pipeline {
         stage('Evaluate Findings & Set Result') {
             steps {
                 script {
-                    def summary = new groovy.json.JsonSlurper().parseText(readFile(env.SECURITY_SUMMARY_JSON))
+                    def summaryText = readFile(env.SECURITY_SUMMARY_JSON)
+                    def summary = parseJsonText(summaryText)
                     def totals = summary.totals ?: [:]
                     def services = summary.services ?: [:]
 
