@@ -34,7 +34,9 @@ if [ -f "${SERVICE_NAME}/sonar-project.properties" ]; then
         echo "⚠ Warning: SONAR_TOKEN not set, skipping SonarQube analysis"
     else
         SONAR_PROJECT_KEY="ecommerce-microservice-backend:${SERVICE_NAME}"
-        SONAR_HOST="${SONAR_HOST_URL:-http://localhost:9000}"
+        # SONAR_HOST_URL can be set via environment variable
+        # Default: Kubernetes service URL (if deployed in K8s) or localhost (for local dev)
+        SONAR_HOST="${SONAR_HOST_URL:-http://sonarqube.default.svc.cluster.local:9000}"
         
         # Run SonarQube analysis
         echo "Running SonarQube analysis..."

@@ -248,7 +248,10 @@ def getNamespaces() {
 }
 
 def getSonarHostUrl() {
-    return 'http://localhost:9000'
+    // For Kubernetes deployment, use the LoadBalancer/NodePort service
+    // For local development, use localhost:9000
+    // This can be overridden via environment variable SONAR_HOST_URL
+    return env.SONAR_HOST_URL ?: 'http://sonarqube.default.svc.cluster.local:9000'
 }
 
 // SonarQube Quality Gate Configuration
