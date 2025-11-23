@@ -15,8 +15,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 
 import com.selimhorri.app.business.payment.model.PaymentDto;
 import com.selimhorri.app.business.payment.model.response.PaymentPaymentServiceDtoCollectionResponse;
+import com.selimhorri.app.business.payment.service.fallback.PaymentClientServiceFallback;
 
-@FeignClient(name = "PAYMENT-SERVICE", contextId = "paymentClientService", path = "/payment-service/api/payments")
+@FeignClient(name = "PAYMENT-SERVICE", contextId = "paymentClientService", path = "/payment-service/api/payments", fallback = PaymentClientServiceFallback.class)
 public interface PaymentClientService {
 	
 	@GetMapping

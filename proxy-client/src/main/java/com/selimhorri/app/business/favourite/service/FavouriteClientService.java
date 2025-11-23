@@ -15,8 +15,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 import com.selimhorri.app.business.favourite.model.FavouriteDto;
 import com.selimhorri.app.business.favourite.model.FavouriteId;
 import com.selimhorri.app.business.favourite.model.response.FavouriteFavouriteServiceCollectionDtoResponse;
+import com.selimhorri.app.business.favourite.service.fallback.FavouriteClientServiceFallback;
 
-@FeignClient(name = "FAVOURITE-SERVICE", contextId = "favouriteClientService", path = "/favourite-service/api/favourites")
+@FeignClient(name = "FAVOURITE-SERVICE", contextId = "favouriteClientService", path = "/favourite-service/api/favourites", fallback = FavouriteClientServiceFallback.class)
 public interface FavouriteClientService {
 	
 	@GetMapping

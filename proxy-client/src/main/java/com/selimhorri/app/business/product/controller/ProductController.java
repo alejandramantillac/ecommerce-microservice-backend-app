@@ -12,7 +12,7 @@ import org.springframework.web.bind.annotation.RestController;
 
 import com.selimhorri.app.business.product.model.ProductDto;
 import com.selimhorri.app.business.product.model.response.ProductProductServiceCollectionDtoResponse;
-import com.selimhorri.app.business.product.service.ProductClientService;
+import com.selimhorri.app.business.product.service.ProductServiceWrapper;
 
 import lombok.RequiredArgsConstructor;
 
@@ -21,37 +21,37 @@ import lombok.RequiredArgsConstructor;
 @RequiredArgsConstructor
 public class ProductController {
 	
-	private final ProductClientService productClientService;
+	private final ProductServiceWrapper productServiceWrapper;
 	
 	@GetMapping
 	public ResponseEntity<ProductProductServiceCollectionDtoResponse> findAll() {
-		return ResponseEntity.ok(this.productClientService.findAll().getBody());
+		return ResponseEntity.ok(this.productServiceWrapper.findAll().getBody());
 	}
 	
 	@GetMapping("/{productId}")
 	public ResponseEntity<ProductDto> findById(@PathVariable("productId") final String productId) {
-		return ResponseEntity.ok(this.productClientService.findById(productId).getBody());
+		return ResponseEntity.ok(this.productServiceWrapper.findById(productId).getBody());
 	}
 	
 	@PostMapping
 	public ResponseEntity<ProductDto> save(@RequestBody final ProductDto productDto) {
-		return ResponseEntity.ok(this.productClientService.save(productDto).getBody());
+		return ResponseEntity.ok(this.productServiceWrapper.save(productDto).getBody());
 	}
 	
 	@PutMapping
 	public ResponseEntity<ProductDto> update(@RequestBody final ProductDto productDto) {
-		return ResponseEntity.ok(this.productClientService.update(productDto).getBody());
+		return ResponseEntity.ok(this.productServiceWrapper.update(productDto).getBody());
 	}
 	
 	@PutMapping("/{productId}")
 	public ResponseEntity<ProductDto> update(@PathVariable("productId") final String productId, 
 			@RequestBody final ProductDto productDto) {
-		return ResponseEntity.ok(this.productClientService.update(productId, productDto).getBody());
+		return ResponseEntity.ok(this.productServiceWrapper.update(productId, productDto).getBody());
 	}
 	
 	@DeleteMapping("/{productId}")
 	public ResponseEntity<Boolean> deleteById(@PathVariable("productId") final String productId) {
-		return ResponseEntity.ok(this.productClientService.deleteById(productId).getBody());
+		return ResponseEntity.ok(this.productServiceWrapper.deleteById(productId).getBody());
 	}
 	
 	

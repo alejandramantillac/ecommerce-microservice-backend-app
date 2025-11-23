@@ -13,9 +13,9 @@ import org.springframework.web.bind.annotation.RestController;
 import com.selimhorri.app.business.payment.model.PaymentDto;
 import com.selimhorri.app.business.payment.model.response.PaymentPaymentServiceDtoCollectionResponse;
 import com.selimhorri.app.business.payment.service.PaymentClientService;
+import com.selimhorri.app.feature.FeatureToggle;
 
 import lombok.RequiredArgsConstructor;
-
 @RestController
 @RequestMapping("/api/payments")
 @RequiredArgsConstructor
@@ -34,6 +34,7 @@ public class PaymentController {
 	}
 	
 	@PostMapping
+	@FeatureToggle(name = "new-payment-method", defaultValue = true, message = "New payment method feature is currently disabled")
 	public ResponseEntity<PaymentDto> save(@RequestBody final PaymentDto paymentDto) {
 		return ResponseEntity.ok(this.paymentClientService.save(paymentDto).getBody());
 	}

@@ -15,8 +15,9 @@ import org.springframework.web.bind.annotation.RequestBody;
 
 import com.selimhorri.app.business.product.model.ProductDto;
 import com.selimhorri.app.business.product.model.response.ProductProductServiceCollectionDtoResponse;
+import com.selimhorri.app.business.product.service.fallback.ProductClientServiceFallback;
 
-@FeignClient(name = "PRODUCT-SERVICE", contextId = "productClientService", path = "/product-service/api/products")
+@FeignClient(name = "PRODUCT-SERVICE", contextId = "productClientService", path = "/product-service/api/products", fallback = ProductClientServiceFallback.class)
 public interface ProductClientService {
 	
 	@GetMapping

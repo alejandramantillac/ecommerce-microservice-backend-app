@@ -438,66 +438,446 @@ public interface UserRepository extends JpaRepository<User, Integer> {
 
 ---
 
-## 8. Circuit Breaker Pattern (Configurado)
+## 8. Circuit Breaker Pattern
 
 ### Descripción
 El patrón Circuit Breaker previene fallos en cascada cuando un servicio dependiente no está disponible. Actúa como un interruptor eléctrico: cuando detecta demasiados fallos, "abre el circuito" y detiene las llamadas al servicio problemático, permitiendo que el sistema se recupere.
 
-### Estado Actual
-**Configuración presente**: Resilience4j está configurado en todos los servicios
+### Implementación
+**Tecnología**: Resilience4j integrado con Spring Cloud OpenFeign
 
-**Ubicación de configuración**: `{service}/src/main/resources/application.yml`
+**Ubicación principal**: `proxy-client/` - Servicio que realiza llamadas inter-servicios
 
-**Ejemplo de configuración**:
+**Configuración**: `proxy-client/src/main/resources/application.yml`
 ```yaml
 resilience4j:
   circuitbreaker:
     instances:
-      userService:
+      proxyService:
         register-health-indicator: true
         failure-rate-threshold: 50
         minimum-number-of-calls: 5
         wait-duration-in-open-state: 5s
         sliding-window-size: 10
         sliding-window-type: COUNT_BASED
+
+feign:
+  circuitbreaker:
+    enabled: true
 ```
 
-**Servicios con Circuit Breaker configurado**:
-- `api-gateway` - Instancia: `apiGateway`
-- `service-discovery` - Instancia: `serviceDiscovery`
-- `proxy-client` - Instancia: `proxyService`
-- `user-service` - Instancia: `userService`
-- `product-service` - Instancia: `productService`
-- `order-service` - Instancia: `orderService`
-- `payment-service` - Instancia: `paymentService`
-- `shipping-service` - Instancia: `shippingService`
-- `favourite-service` - Instancia: `favouriteService`
-- `cloud-config` - Instancia: `cloudConfig`
+**Feign Clients con Circuit Breaker**:
+Todos los Feign Clients principales tienen fallbacks implementados:
+- `UserClientService` - Fallback: `UserClientServiceFallback`
+- `ProductClientService` - Fallback: `ProductClientServiceFallback`
+- `PaymentClientService` - Fallback: `PaymentClientServiceFallback`
+- `OrderClientService` - Fallback: `OrderClientServiceFallback`
+- `FavouriteClientService` - Fallback: `FavouriteClientServiceFallback`
 
-### Limitación Actual
-⚠️ **El Circuit Breaker está configurado pero NO se usa activamente en el código Java**. 
+**Ejemplo de implementación**:
+```java
+@FeignClient(
+    name = "USER-SERVICE", 
+    path = "/user-service/api/users",
+    fallback = UserClientServiceFallback.class  // ← Circuit Breaker fallback
+)
+public interface UserClientService {
+    @GetMapping
+    ResponseEntity<UserUserServiceCollectionDtoResponse> findAll();
+    // ... más métodos
+}
+```
 
-- No hay anotaciones `@CircuitBreaker` en los métodos
-- No hay fallback methods implementados
-- La configuración existe pero no está conectada al código
+**Clases Fallback**:
+Cada fallback implementa la misma interfaz del Feign Client y proporciona respuestas por defecto cuando el servicio está no disponible:
 
-### Propósito (cuando se implemente completamente)
+```java
+@Component
+@Slf4j
+public class UserClientServiceFallback implements UserClientService {
+    @Override
+    public ResponseEntity<UserUserServiceCollectionDtoResponse> findAll() {
+        log.warn("Circuit breaker opened or USER-SERVICE unavailable.");
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new UserUserServiceCollectionDtoResponse());
+    }
+    // ... implementación de todos los métodos
+}
+```
+
+### Propósito
 - **Prevenir fallos en cascada**: Detener llamadas a servicios que están fallando
 - **Degradación elegante**: Proporcionar respuestas alternativas cuando un servicio no está disponible
-- **Recuperación automática**: Intentar reconectar después de un período de tiempo
+- **Recuperación automática**: Intentar reconectar después de un período de tiempo (5 segundos configurado)
 - **Monitoreo**: Health indicators para detectar problemas
 
-### Beneficios Potenciales
+### Beneficios
 ✅ **Resiliencia**: El sistema continúa funcionando aunque algunos servicios fallen  
 ✅ **Performance**: Evita esperas innecesarias en servicios que no responden  
 ✅ **Observabilidad**: Métricas claras del estado de los circuitos  
 ✅ **Recuperación**: Reintentos automáticos cuando el servicio se recupera  
+✅ **Degradación elegante**: Respuestas HTTP 503 en lugar de timeouts o errores 500  
 
-### Nota
-Este patrón está **parcialmente implementado** y será mejorado en fases posteriores agregando:
-- Anotaciones `@CircuitBreaker` en métodos críticos
-- Clases fallback para manejar errores
-- Integración con Feign Clients
+### Flujo de Circuit Breaker
+```
+1. Request → Feign Client
+2. Si servicio responde → Retorna respuesta normal
+3. Si servicio falla → Circuit Breaker cuenta fallos
+4. Si fallos > threshold (50%) → Circuito ABIERTO
+5. Circuito abierto → Fallback se ejecuta automáticamente
+6. Después de wait-duration (5s) → Circuito HALF-OPEN
+7. Si prueba exitosa → Circuito CERRADO (normal)
+8. Si prueba falla → Circuito ABIERTO nuevamente
+```
+
+### Configuración de Parámetros
+- **failure-rate-threshold: 50%**: Se abre el circuito si más del 50% de las llamadas fallan
+- **minimum-number-of-calls: 5**: Mínimo de llamadas antes de evaluar el estado
+- **wait-duration-in-open-state: 5s**: Tiempo antes de intentar reconectar
+- **sliding-window-size: 10**: Ventana de las últimas 10 llamadas para evaluar
+- **sliding-window-type: COUNT_BASED**: Basado en número de llamadas (no tiempo)
+
+### Ubicación de Archivos
+- **Fallbacks**: `proxy-client/src/main/java/com/selimhorri/app/business/*/service/fallback/`
+- **Feign Clients**: `proxy-client/src/main/java/com/selimhorri/app/business/*/service/*ClientService.java`
+- **Configuración**: `proxy-client/src/main/resources/application.yml`
+
+---
+
+## 9. Feature Toggle Pattern
+
+### Descripción
+El patrón Feature Toggle (también conocido como Feature Flag) permite habilitar o deshabilitar funcionalidades de forma dinámica sin necesidad de redeployar la aplicación. Esto es especialmente útil para testing A/B, rollouts graduales, y kill switches para features problemáticas.
+
+### Implementación
+**Tecnología**: Spring AOP + Spring Cloud Config
+
+**Dependencias requeridas**:
+- `spring-boot-starter-aop` (en `proxy-client/pom.xml`)
+- `spring-cloud-starter-config` (para integración con Config Server)
+- Spring Boot Actuator (heredado del pom.xml padre)
+
+**Ubicación principal**: `proxy-client/` - Servicio que expone endpoints al cliente
+
+**Nota importante**: La aplicación usa `context-path: /app` (configurado en `application.yml`), por lo que todos los endpoints tienen el prefijo `/app`. Por ejemplo: `/app/api/payments` en lugar de `/api/payments`.
+
+**Componentes implementados**:
+1. **Anotación `@FeatureToggle`**: Marca métodos/endpoints controlados por feature toggle
+2. **FeatureToggleService**: Gestiona el estado de los features usando reflexión para mapear propiedades dinámicamente
+3. **FeatureToggleAspect**: Intercepta métodos anotados usando AOP (@Around)
+4. **FeatureToggleController**: Endpoint de administración para gestionar features dinámicamente
+5. **FeatureToggleProperties**: Clase de configuración que mapea propiedades YAML a campos Java
+6. **FeatureDisabledException**: Excepción personalizada lanzada cuando un feature está deshabilitado
+
+**Configuración**: `proxy-client/src/main/resources/application.yml`
+```yaml
+feature:
+  toggle:
+    new-payment-method: ${FEATURE_TOGGLE_NEW_PAYMENT_METHOD:true}
+    advanced-search: ${FEATURE_TOGGLE_ADVANCED_SEARCH:false}
+    recommendation-engine: ${FEATURE_TOGGLE_RECOMMENDATION_ENGINE:false}
+    bulk-operations: ${FEATURE_TOGGLE_BULK_OPERATIONS:true}
+```
+
+**Ejemplo de uso en PaymentController**:
+```java
+@PostMapping
+@FeatureToggle(
+    name = "new-payment-method", 
+    defaultValue = true,
+    message = "New payment method feature is currently disabled"
+)
+public ResponseEntity<PaymentDto> save(@RequestBody final PaymentDto paymentDto) {
+    return ResponseEntity.ok(this.paymentClientService.save(paymentDto).getBody());
+}
+```
+
+**Ejemplo de uso en ProductController**:
+```java
+@GetMapping
+@FeatureToggle(
+    name = "advanced-search", 
+    defaultValue = false,
+    message = "Advanced search feature is currently disabled"
+)
+public ResponseEntity<ProductProductServiceCollectionDtoResponse> findAll() {
+    return ResponseEntity.ok(this.productClientService.findAll().getBody());
+}
+```
+
+**Endpoints con Feature Toggle aplicado** (con context-path `/app`):
+- `POST /app/api/payments` - Controlado por `new-payment-method` (método `save()` en `PaymentController`)
+- `GET /app/api/favourites` - Controlado por `recommendation-engine` (método `findAll()` en `FavouriteController`)
+
+**Nota**: El endpoint `GET /app/api/products` mencionado en versiones anteriores de la documentación no tiene Feature Toggle implementado actualmente. El `ProductController` no utiliza la anotación `@FeatureToggle`.
+
+**Endpoints de administración**: `/app/api/admin/features`
+- `GET /app/api/admin/features` - Listar todos los features
+- `GET /app/api/admin/features/{featureName}` - Estado de un feature específico
+- `POST /app/api/admin/features/{featureName}/enable` - Habilitar feature
+- `POST /app/api/admin/features/{featureName}/disable` - Deshabilitar feature
+- `POST /app/api/admin/features/cache/clear` - Limpiar caché
+
+**Nota de seguridad**: Los endpoints de administración requieren rol `ADMIN` (configurado en `SecurityConfig`)
+
+### Propósito
+- **Control dinámico**: Habilitar/deshabilitar features sin redeploy
+- **Testing A/B**: Probar nuevas funcionalidades con un subconjunto de usuarios
+- **Rollout gradual**: Activar features progresivamente
+- **Kill switch**: Desactivar rápidamente features problemáticas
+- **Configuración por ambiente**: Diferentes features activos en dev/staging/prod
+
+### Beneficios
+✅ **Despliegue continuo sin riesgo**: Features pueden desplegarse deshabilitados  
+✅ **Control granular**: Activar/desactivar features individuales  
+✅ **Testing en producción**: Probar features con usuarios reales de forma controlada  
+✅ **Rollback rápido**: Desactivar features problemáticas sin redeploy  
+✅ **Configuración dinámica**: Cambios sin reiniciar la aplicación (con @RefreshScope)  
+
+### Flujo de Feature Toggle
+```
+1. Request → Controller Method
+2. Aspect intercepta método anotado con @FeatureToggle
+3. FeatureToggleService verifica estado del feature
+   ├─ Si habilitado → Ejecuta método normalmente
+   └─ Si deshabilitado → Lanza FeatureDisabledException
+4. ApiExceptionHandler captura excepción
+5. Retorna HTTP 503 (Service Unavailable) con mensaje
+```
+
+### Configuración Dinámica
+El servicio usa `@RefreshScope` en `FeatureToggleService` y `FeatureToggleProperties` para permitir actualizaciones dinámicas sin reiniciar la aplicación.
+
+**Métodos de actualización**:
+1. **Via endpoints de administración** (implementado y funcional):
+   ```bash
+   POST /app/api/admin/features/new-payment-method/disable
+   POST /app/api/admin/features/new-payment-method/enable
+   POST /app/api/admin/features/cache/clear
+   ```
+   Estos endpoints actualizan el cache en memoria inmediatamente.
+
+2. **Via Spring Cloud Config** (preparado pero requiere configuración adicional):
+   - El servicio tiene un listener `handleEnvironmentChange()` que escucha `EnvironmentChangeEvent`
+   - Cuando detecta cambios en propiedades `feature.toggle.*`, limpia el cache automáticamente
+   - Requiere que Spring Cloud Config esté configurado y que se dispare el evento de cambio
+   - Los cambios se aplican sin reiniciar gracias a `@RefreshScope`
+
+**Implementación del listener**:
+```java
+@EventListener
+public void handleEnvironmentChange(EnvironmentChangeEvent event) {
+    boolean featureToggleChanged = event.getKeys().stream()
+        .anyMatch(key -> key.startsWith("feature.toggle."));
+    if (featureToggleChanged) {
+        clearCache();
+    }
+}
+```
+
+### Ubicación de Archivos
+- **Anotación**: `proxy-client/src/main/java/com/selimhorri/app/feature/FeatureToggle.java`
+- **Servicio**: `proxy-client/src/main/java/com/selimhorri/app/feature/service/FeatureToggleService.java`
+- **Aspect**: `proxy-client/src/main/java/com/selimhorri/app/feature/aspect/FeatureToggleAspect.java`
+- **Controller**: `proxy-client/src/main/java/com/selimhorri/app/feature/controller/FeatureToggleController.java`
+- **Properties**: `proxy-client/src/main/java/com/selimhorri/app/feature/config/FeatureToggleProperties.java`
+- **Excepción**: `proxy-client/src/main/java/com/selimhorri/app/feature/exception/FeatureDisabledException.java`
+- **Configuración**: `proxy-client/src/main/resources/application.yml`
+- **Dependencia AOP**: `proxy-client/pom.xml` (spring-boot-starter-aop)
+- **Aplicación principal**: `proxy-client/src/main/java/com/selimhorri/app/ProxyClientApplication.java`
+  - Anotaciones: `@EnableAspectJAutoProxy`, `@EnableConfigurationProperties(FeatureToggleProperties.class)`, `@RefreshScope`
+- **Manejo de excepciones**: `proxy-client/src/main/java/com/selimhorri/app/exception/ApiExceptionHandler.java`
+  - Método: `handleFeatureDisabledException()` - Retorna HTTP 503 (Service Unavailable)
+- **Seguridad**: `proxy-client/src/main/java/com/selimhorri/app/security/SecurityConfig.java`
+  - Endpoints `/app/api/admin/features/**` requieren rol `ADMIN`
+- **Controllers que usan Feature Toggle**:
+  - `proxy-client/src/main/java/com/selimhorri/app/business/payment/controller/PaymentController.java` - Método `save()` con `@FeatureToggle(name = "new-payment-method")`
+  - `proxy-client/src/main/java/com/selimhorri/app/business/favourite/controller/FavouriteController.java` - Método `findAll()` con `@FeatureToggle(name = "recommendation-engine")`
+- **Tests unitarios**:
+  - `proxy-client/src/test/java/com/selimhorri/app/feature/service/FeatureToggleServiceTest.java` (9 tests)
+  - `proxy-client/src/test/java/com/selimhorri/app/feature/aspect/FeatureToggleAspectTest.java` (5 tests)
+  - Total: 14 tests, todos pasando
+
+---
+
+## 10. Bulkhead Pattern
+
+### Descripción
+El patrón Bulkhead aísla recursos del sistema para prevenir que fallos o sobrecargas en un servicio afecten a otros servicios. Limita el número de llamadas concurrentes a cada servicio dependiente, creando "compartimentos" aislados (como los bulkheads de un barco) que previenen que un compartimento inundado afecte a los demás.
+
+### Implementación
+**Tecnología**: Resilience4j Bulkhead integrado con Spring Cloud OpenFeign
+
+**Ubicación principal**: `proxy-client/` - Servicio que realiza llamadas inter-servicios
+
+**Configuración**: `proxy-client/src/main/resources/application.yml`
+```yaml
+resilience4j:
+  bulkhead:
+    instances:
+      productClientService:
+        max-concurrent-calls: 20
+        max-wait-duration: 1s
+      paymentClientService:
+        max-concurrent-calls: 10
+        max-wait-duration: 2s
+      orderClientService:
+        max-concurrent-calls: 10
+        max-wait-duration: 2s
+      userClientService:
+        max-concurrent-calls: 20
+        max-wait-duration: 1s
+
+management:
+  health:
+    bulkheads:
+      enabled: true
+  endpoint:
+    prometheus:
+      enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+```
+
+**Implementación programática**: 
+Debido a limitaciones en Spring Cloud 2020.0.4, las anotaciones `@Bulkhead` no funcionan automáticamente con Feign Clients. Por lo tanto, se implementó una solución programática:
+
+1. **FeignBulkheadConfig.java**: Configura el bean `BulkheadRegistry` que lee la configuración de `application.yml`
+```java
+@Configuration
+public class FeignBulkheadConfig {
+    @Bean
+    public BulkheadRegistry bulkheadRegistry() {
+        return BulkheadRegistry.ofDefaults();
+    }
+}
+```
+
+2. **ProductServiceWrapper.java**: Wrapper que aplica Bulkhead programáticamente usando `Bulkhead.decorateSupplier()`
+```java
+@Service
+@RequiredArgsConstructor
+public class ProductServiceWrapper {
+    private final ProductClientService productClientService;
+    private final BulkheadRegistry bulkheadRegistry;
+    
+    public ResponseEntity<ProductDto> findById(String productId) {
+        Bulkhead bulkhead = bulkheadRegistry.bulkhead("productClientService");
+        return Bulkhead.decorateSupplier(bulkhead, () -> {
+            return productClientService.findById(productId);
+        }).get();
+    }
+    // ... más métodos
+}
+```
+
+3. **ProductController.java**: Usa `ProductServiceWrapper` en lugar de `ProductClientService` directamente
+```java
+@RestController
+@RequestMapping("/api/products")
+@RequiredArgsConstructor
+public class ProductController {
+    private final ProductServiceWrapper productServiceWrapper;
+    
+    @GetMapping("/{productId}")
+    public ResponseEntity<ProductDto> findById(@PathVariable String productId) {
+        return ResponseEntity.ok(productServiceWrapper.findById(productId).getBody());
+    }
+}
+```
+
+**Instancias de Bulkhead configuradas**:
+- `productClientService`: 20 llamadas concurrentes máximas, 1s max wait duration
+- `paymentClientService`: 10 llamadas concurrentes máximas, 2s max wait duration
+- `orderClientService`: 10 llamadas concurrentes máximas, 2s max wait duration
+- `userClientService`: 20 llamadas concurrentes máximas, 1s max wait duration
+
+### Propósito
+- **Aislamiento de recursos**: Previene que un servicio sobrecargado consuma todos los recursos del sistema
+- **Protección contra cascadas**: Limita el impacto de fallos en servicios dependientes
+- **Control de concurrencia**: Garantiza que no se excedan límites de capacidad definidos
+- **Prevención de timeouts**: Evita que demasiadas llamadas simultáneas causen timeouts en cascada
+
+### Beneficios
+✅ **Aislamiento**: Cada servicio tiene su propio "compartimento" con límites de concurrencia  
+✅ **Resiliencia**: Un servicio lento o caído no afecta a otros servicios  
+✅ **Control de recursos**: Límites claros de capacidad por servicio  
+✅ **Observabilidad**: Métricas detalladas para monitoreo y alertas  
+✅ **Prevención de cascadas**: Evita que fallos se propaguen a través del sistema  
+
+### Flujo de Bulkhead
+```
+1. Request → ProductController
+2. ProductController llama a ProductServiceWrapper
+3. ProductServiceWrapper obtiene Bulkhead instance del registry
+4. Bulkhead.decorateSupplier() envuelve la llamada
+5. Bulkhead verifica disponibilidad:
+   ├─ Si hay slots disponibles → Ejecuta llamada inmediatamente
+   ├─ Si no hay slots pero hay tiempo de espera → Espera hasta que haya disponibilidad
+   └─ Si se excede max-wait-duration → Lanza BulkheadFullException
+6. Métricas se actualizan (llamadas permitidas, rechazadas, tiempo de espera)
+```
+
+### Parámetros de Configuración
+
+**max-concurrent-calls**: Número máximo de llamadas concurrentes permitidas
+- `productClientService`: 20 (servicio de alto tráfico)
+- `paymentClientService`: 10 (servicio crítico con menor tráfico)
+- `orderClientService`: 10 (servicio crítico con menor tráfico)
+- `userClientService`: 20 (servicio de alto tráfico)
+
+**max-wait-duration**: Tiempo máximo que una llamada esperará por un slot disponible
+- `productClientService`: 1s (respuesta rápida esperada)
+- `paymentClientService`: 2s (puede tolerar más espera)
+- `orderClientService`: 2s (puede tolerar más espera)
+- `userClientService`: 1s (respuesta rápida esperada)
+
+### Métricas y Observabilidad
+
+**Health Indicators**: Disponibles en `/app/actuator/health` (solo aparecen cuando se usan las instancias de Bulkhead)
+```json
+{
+  "components": {
+    "bulkheads": {
+      "status": "UP",
+      "details": {
+        "productClientService": {
+          "status": "UP",
+          "availableConcurrentCalls": 20,
+          "maxAllowedConcurrentCalls": 20
+        }
+      }
+    }
+  }
+}
+```
+**Nota**: Solo `productClientService` aparecerá en los health indicators ya que es el único servicio con implementación funcional.
+
+**Métricas Prometheus**: Disponibles en `/app/actuator/prometheus` (solo aparecen cuando se usan las instancias de Bulkhead)
+- `resilience4j_bulkhead_available_concurrent_calls{name="productClientService"}`: Llamadas concurrentes disponibles
+- `resilience4j_bulkhead_max_allowed_concurrent_calls{name="productClientService"}`: Límite máximo configurado
+- `resilience4j_bulkhead_rejected_calls_total{name="productClientService"}`: Total de llamadas rechazadas
+
+**Nota**: Las métricas solo estarán disponibles para `productClientService` ya que es el único servicio con implementación funcional. Las instancias configuradas para otros servicios no generarán métricas hasta que se implementen wrappers para ellos.
+
+### Ubicación de Archivos
+- **Configuración**: `proxy-client/src/main/java/com/selimhorri/app/config/FeignBulkheadConfig.java`
+- **Wrapper**: `proxy-client/src/main/java/com/selimhorri/app/business/product/service/ProductServiceWrapper.java`
+- **Controller**: `proxy-client/src/main/java/com/selimhorri/app/business/product/controller/ProductController.java`
+- **Configuración YAML**: `proxy-client/src/main/resources/application.yml` (sección `resilience4j.bulkhead`)
+- **Dependencias**: `proxy-client/pom.xml` (resilience4j-bulkhead, vavr)
+- **Seguridad**: `proxy-client/src/main/java/com/selimhorri/app/security/SecurityConfig.java` (permite acceso a `/actuator/prometheus/**`)
+- **Tests**:
+  - `proxy-client/src/test/java/com/selimhorri/app/config/BulkheadConfigurationTest.java` (verifica configuración)
+  - `proxy-client/src/test/java/com/selimhorri/app/config/BulkheadIntegrationTest.java` (verifica health indicators)
+
+### Notas de Implementación
+- **Implementación programática**: Se usa `Bulkhead.decorateSupplier()` en lugar de anotaciones `@Bulkhead` debido a limitaciones en Spring Cloud 2020.0.4 con Feign Clients
+- **Solo ProductService implementado**: Actualmente solo `ProductService` tiene implementación completa y funcional del patrón Bulkhead mediante `ProductServiceWrapper`. Aunque las instancias de Bulkhead están configuradas en `application.yml` para `paymentClientService`, `orderClientService` y `userClientService`, estos servicios NO tienen wrappers implementados y por lo tanto NO tienen Bulkhead aplicado en sus llamadas
+- **Configuración vs Implementación**: Las instancias de Bulkhead configuradas en `application.yml` para otros servicios están disponibles en el `BulkheadRegistry`, pero no se utilizan porque no hay wrappers que las apliquen
+- **Extensibilidad**: El patrón puede extenderse a otros servicios creando wrappers similares a `ProductServiceWrapper` para `PaymentClientService`, `OrderClientService`, `UserClientService`, etc.
 
 ---
 
@@ -512,7 +892,9 @@ Este patrón está **parcialmente implementado** y será mejorado en fases poste
 | 5 | Distributed Tracing | ✅ Completo | Todos los servicios | Zipkin + Sleuth |
 | 6 | Feign Client | ✅ Completo | `proxy-client/` | Spring Cloud OpenFeign |
 | 7 | Layered Architecture | ✅ Completo | Todos los servicios | Spring Boot |
-| 8 | Circuit Breaker | ⚠️ Configurado | Todos los servicios | Resilience4j |
+| 8 | Circuit Breaker | ✅ Completo | `proxy-client/` | Resilience4j + Feign |
+| 9 | Feature Toggle | ✅ Completo | `proxy-client/` | Spring AOP + Config |
+| 10 | Bulkhead | ✅ Completo | `proxy-client/` | Resilience4j Bulkhead |
 
 ---
 
@@ -582,12 +964,24 @@ Este patrón está **parcialmente implementado** y será mejorado en fases poste
 **Circuit Breaker**:
 - Todos los `application.yml` contienen configuración de Resilience4j (líneas 26-38 aproximadamente)
 
+**Bulkhead**:
+- `proxy-client/src/main/resources/application.yml` contiene configuración de Bulkhead (sección `resilience4j.bulkhead`)
+- `proxy-client/src/main/java/com/selimhorri/app/config/FeignBulkheadConfig.java` - Configuración del registry
+- `proxy-client/src/main/java/com/selimhorri/app/business/product/service/ProductServiceWrapper.java` - Implementación programática
+
 ---
 
 ## Conclusión
 
-La arquitectura implementa **7 patrones completamente funcionales** y **1 patrón configurado pero pendiente de implementación en código**. Estos patrones trabajan juntos para crear un sistema de microservicios resiliente, escalable y mantenible.
+La arquitectura implementa **10 patrones completamente funcionales**. Estos patrones trabajan juntos para crear un sistema de microservicios resiliente, escalable y mantenible.
 
-Los patrones están bien integrados y proporcionan una base sólida para el sistema. El Circuit Breaker, aunque configurado, requiere implementación adicional en el código para estar completamente funcional.
+Los patrones están bien integrados y proporcionan una base sólida para el sistema:
+- **Patrones de comunicación**: API Gateway, Service Discovery, Feign Client
+- **Patrones de resiliencia**: Circuit Breaker, Bulkhead
+- **Patrones de configuración**: External Configuration, Feature Toggle
+- **Patrones de observabilidad**: Distributed Tracing
+- **Patrones arquitectónicos**: Layered Architecture, Database per Service
+
+Cada patrón cumple un rol específico y complementa a los demás, creando un sistema robusto y preparado para producción.
 
 

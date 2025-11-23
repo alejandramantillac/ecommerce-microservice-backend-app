@@ -181,19 +181,96 @@ La arquitectura implementa múltiples patrones de diseño que trabajan en conjun
 
 **Beneficios**: Separación clara de responsabilidades, alta testabilidad, y fácil mantenimiento.
 
-#### 2.2.8 Circuit Breaker Pattern (Configurado)
+#### 2.2.8 Circuit Breaker Pattern
 
-**Implementación**: Resilience4j configurado en todos los servicios
+**Implementación**: Resilience4j integrado con Spring Cloud OpenFeign en `proxy-client`
 
-**Estado**: ⚠️ **Configurado pero no implementado activamente en código**
+**Estado**: ✅ **Completamente implementado y funcional**
 
-**Descripción**: Protege el sistema de fallos en cascada cuando un servicio dependiente no está disponible.
+**Descripción**: Protege el sistema de fallos en cascada cuando un servicio dependiente no está disponible, proporcionando degradación elegante mediante fallbacks.
 
-**Configuración presente**: Todos los servicios tienen configuración de Resilience4j en `application.yml` con instancias específicas (ej: `userService`, `productService`, etc.) y parámetros como `failure-rate-threshold`, `wait-duration-in-open-state`, etc.
+**Implementación**: 
+- **Feign Clients con Fallbacks**: Todos los Feign Clients principales tienen clases fallback implementadas que se activan automáticamente cuando el circuito se abre
+- **Configuración**: `proxy-client/src/main/resources/application.yml` con `feign.circuitbreaker.enabled: true`
+- **Parámetros configurados**: `failure-rate-threshold: 50%`, `wait-duration-in-open-state: 5s`, `sliding-window-size: 10`
 
-**Limitación**: No hay anotaciones `@CircuitBreaker` en métodos ni fallback methods implementados. La configuración existe pero no está conectada al código Java.
+**Feign Clients protegidos**:
+- `UserClientService` → `UserClientServiceFallback`
+- `ProductClientService` → `ProductClientServiceFallback`
+- `PaymentClientService` → `PaymentClientServiceFallback`
+- `OrderClientService` → `OrderClientServiceFallback`
+- `FavouriteClientService` → `FavouriteClientServiceFallback`
 
-**Nota**: Este patrón será mejorado en fases posteriores para estar completamente funcional.
+**Funcionamiento**: Cuando un servicio falla repetidamente (más del 50% de las llamadas), el circuito se abre y automáticamente se ejecutan los métodos fallback, retornando respuestas HTTP 503 (Service Unavailable) en lugar de causar timeouts o errores 500.
+
+**Beneficios**: Previene fallos en cascada, mejora la resiliencia del sistema, y proporciona observabilidad mediante health indicators.
+
+**Documentación detallada**: Ver `docs/DESIGN_PATTERNS.md` para información completa de todos los patrones.
+
+#### 2.2.9 Feature Toggle Pattern
+
+**Implementación**: Spring AOP + Spring Cloud Config en `proxy-client`
+
+**Estado**: ✅ **Completamente implementado y funcional**
+
+**Descripción**: Permite habilitar o deshabilitar funcionalidades dinámicamente sin necesidad de redeploy, proporcionando control granular sobre features del sistema.
+
+**Implementación**: 
+- **Anotación `@FeatureToggle`**: Aplicada en métodos de controllers para controlar acceso a funcionalidades
+- **Aspect AOP**: Intercepta métodos anotados y verifica el estado del feature
+- **Configuración**: `proxy-client/src/main/resources/application.yml` con propiedades `feature.toggle.*`
+- **Endpoints de administración**: `/app/api/admin/features/**` para gestión dinámica
+
+**Features configurados**:
+- `new-payment-method`: Habilitado por defecto
+- `advanced-search`: Deshabilitado por defecto
+- `recommendation-engine`: Deshabilitado por defecto
+- `bulk-operations`: Habilitado por defecto
+
+**Beneficios**: Control dinámico de features, testing A/B, rollout gradual, kill switch rápido, y configuración por ambiente.
+
+**Documentación detallada**: Ver `docs/DESIGN_PATTERNS.md` para información completa de todos los patrones.
+
+#### 2.2.10 Bulkhead Pattern
+
+**Implementación**: Resilience4j Bulkhead con Spring Cloud OpenFeign en `proxy-client`
+
+**Estado**: ✅ **Completamente implementado y funcional**
+
+**Descripción**: Aísla recursos del sistema para prevenir que fallos en un servicio afecten a otros, limitando el número de llamadas concurrentes a cada servicio dependiente.
+
+**Implementación**: 
+- **Configuración programática**: `ProductServiceWrapper` aplica Bulkhead usando `Bulkhead.decorateSupplier()`
+- **Configuración**: `proxy-client/src/main/resources/application.yml` con instancias de Bulkhead para cada Feign Client
+- **BulkheadRegistry**: Bean configurado en `FeignBulkheadConfig.java` que lee configuración de `application.yml`
+- **Health Indicators**: Habilitados en Actuator para monitoreo
+
+**Instancias de Bulkhead configuradas en `application.yml`**:
+- `productClientService`: 20 llamadas concurrentes máximas, 1s max wait duration ✅ **Implementado y funcional**
+- `paymentClientService`: 10 llamadas concurrentes máximas, 2s max wait duration ⚠️ **Solo configurado, no implementado**
+- `orderClientService`: 10 llamadas concurrentes máximas, 2s max wait duration ⚠️ **Solo configurado, no implementado**
+- `userClientService`: 20 llamadas concurrentes máximas, 1s max wait duration ⚠️ **Solo configurado, no implementado**
+
+**Implementación técnica**:
+- `ProductServiceWrapper`: Wrapper que aplica Bulkhead programáticamente a todas las llamadas de `ProductClientService` ✅ **Implementado**
+- `FeignBulkheadConfig`: Configuración centralizada que proporciona `BulkheadRegistry` bean ✅ **Implementado**
+- `ProductController`: Actualizado para usar `ProductServiceWrapper` en lugar de `ProductClientService` directamente ✅ **Implementado**
+
+**Nota importante**: Solo `ProductService` tiene implementación completa y funcional del patrón Bulkhead. Los otros servicios (`PaymentClientService`, `OrderClientService`, `UserClientService`) tienen instancias de Bulkhead configuradas en `application.yml`, pero no tienen wrappers implementados, por lo que el Bulkhead NO se aplica a sus llamadas. Para extender el patrón a otros servicios, se necesitarían wrappers similares a `ProductServiceWrapper`.
+
+**Funcionamiento**: Cuando se alcanza el límite de llamadas concurrentes, las llamadas adicionales esperan hasta que haya disponibilidad (hasta el `max-wait-duration`). Si el tiempo de espera se excede, se lanza una excepción.
+
+**Métricas y Observabilidad**:
+- Health indicators disponibles en `/app/actuator/health` (sección `bulkheads`) - Solo aparecerán cuando se usen las instancias de Bulkhead
+- Métricas Prometheus en `/app/actuator/prometheus` (prefijo `resilience4j_bulkhead_*`) - Solo aparecerán cuando se usen las instancias de Bulkhead
+- Métricas incluyen: llamadas permitidas, rechazadas, tiempo de espera, etc.
+- **Nota**: Las métricas solo estarán disponibles para `productClientService` ya que es el único servicio con implementación funcional
+
+**Beneficios**: 
+- **Aislamiento de recursos**: Previene que un servicio sobrecargado afecte a otros
+- **Protección contra cascadas**: Limita el impacto de fallos en servicios dependientes
+- **Control de concurrencia**: Garantiza que no se excedan límites de capacidad
+- **Observabilidad**: Métricas detalladas para monitoreo y alertas
 
 **Documentación detallada**: Ver `docs/DESIGN_PATTERNS.md` para información completa de todos los patrones.
 
