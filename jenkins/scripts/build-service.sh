@@ -33,10 +33,8 @@ if [ -f "${SERVICE_NAME}/sonar-project.properties" ]; then
     if [ -z "${SONAR_TOKEN}" ]; then
         echo "⚠ Warning: SONAR_TOKEN not set, skipping SonarQube analysis"
     else
-        SONAR_PROJECT_KEY="ecommerce-microservice-backend:${SERVICE_NAME}"
-        # SONAR_HOST_URL can be set via environment variable
-        # Default: Kubernetes service URL (if deployed in K8s) or localhost (for local dev)
-        SONAR_HOST="${SONAR_HOST_URL:-http://sonarqube.default.svc.cluster.local:9000}"
+        SONAR_PROJECT_KEY="${SONAR_ORGANIZATION}:${SERVICE_NAME}"
+        SONAR_HOST="${SONAR_HOST_URL}"
         
         # Run SonarQube analysis
         echo "Running SonarQube analysis..."
@@ -46,6 +44,7 @@ if [ -f "${SERVICE_NAME}/sonar-project.properties" ]; then
             -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
             -Dsonar.host.url="${SONAR_HOST}" \
             -Dsonar.login="${SONAR_TOKEN}" \
+            -Dsonar.organization="${SONAR_ORGANIZATION}" \
             -DskipTests; then
             echo "✗ SonarQube analysis failed"
             exit 1
@@ -60,7 +59,7 @@ if [ -f "${SERVICE_NAME}/sonar-project.properties" ]; then
             chmod +x jenkins/scripts/check-sonarqube-quality-gate.sh
             
             # Check if Quality Gate enforcement is enabled (default: true)
-            ENFORCE_QUALITY_GATE="${SONAR_ENFORCE_QUALITY_GATE:-true}"
+            ENFORCE_QUALITY_GATE="$SONAR_ENFORCE_QUALITY_GATE"
             
             if [ "$ENFORCE_QUALITY_GATE" = "true" ]; then
                 jenkins/scripts/check-sonarqube-quality-gate.sh \
@@ -107,14 +106,15 @@ if [ -f "jenkins/scripts/scan-image-trivy.sh" ]; then
     chmod +x jenkins/scripts/scan-image-trivy.sh
     
     # Get severity threshold from environment or use default
-    TRIVY_SEVERITY="${TRIVY_SEVERITY_THRESHOLD:-CRITICAL,HIGH}"
-    TRIVY_EXIT_ON_FAILURE="${TRIVY_EXIT_ON_FAILURE:-true}"
+    TRIVY_SEVERITY="$TRIVY_SEVERITY_THRESHOLD"
+    TRIVY_EXIT_ON_FAILURE="$TRIVY_EXIT_ON_FAILURE"
+    TRIVY_REPORT_FORMAT="$TRIVY_REPORT_FORMAT"
     
     jenkins/scripts/scan-image-trivy.sh \
         "${REGISTRY}/${SERVICE_NAME}:${IMAGE_TAG}" \
         "${TRIVY_SEVERITY}" \
         "${TRIVY_EXIT_ON_FAILURE}" \
-        "json" || {
+        "${TRIVY_REPORT_FORMAT}" || {
         echo "✗ Trivy scan failed for ${SERVICE_NAME}"
         exit 1
     }

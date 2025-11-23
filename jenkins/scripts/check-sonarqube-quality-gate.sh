@@ -5,9 +5,9 @@
 set -e
 
 PROJECT_KEY="$1"
-SONAR_HOST_URL="${2:-http://localhost:9000}"
+SONAR_HOST_URL="$2"
 SONAR_TOKEN="$3"
-MAX_WAIT_SECONDS="${4:-60}"
+MAX_WAIT_SECONDS="$4"
 
 if [ -z "$PROJECT_KEY" ] || [ -z "$SONAR_TOKEN" ]; then
     echo "Usage: $0 <project-key> <sonar-host-url> <sonar-token> [max-wait-seconds]"
