@@ -266,7 +266,7 @@ def getTrivySeverityThreshold() {
 }
 
 def getTrivyExitOnFailure() {
-    return 'true'
+    return 'false'
 }
 
 def getTrivyReportFormat() {

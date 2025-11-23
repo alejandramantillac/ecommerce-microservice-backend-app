@@ -324,6 +324,8 @@ def runTrivyScans(changedServices, registry, imageTag) {
             jenkins/scripts/trivy-service.sh "${serviceName}" "${registry}" "${imageTag}"
         """
     }
+
+    archiveArtifacts artifacts: 'trivy-reports/**/*.json', fingerprint: true, allowEmptyArchive: true
 }
 
 def cleanSpace() {
