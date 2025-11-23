@@ -54,7 +54,7 @@ pipeline {
                             set -e
                             mkdir -p \${WORKSPACE}/.kube
                             cd infra/terraform/environments/${env.K8S_NAMESPACE}
-                            terraform init -input=false -backend=false >/dev/null
+                            terraform init -input=false >/dev/null
                             RG_NAME=\$(terraform output -raw resource_group_name)
                             AKS_NAME=\$(terraform output -raw aks_cluster_name)
                             az login --service-principal -u "\$ARM_CLIENT_ID" -p "\$ARM_CLIENT_SECRET" --tenant "\$ARM_TENANT_ID" >/dev/null
