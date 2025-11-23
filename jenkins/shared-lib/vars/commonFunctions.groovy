@@ -306,7 +306,9 @@ def runSonarAnalyses(changedServices) {
 }
 
 def runTrivyScans(changedServices, registry, imageTag) {
+    def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
     def serviceList = changedServices.split(',')
+
     for (serviceName in serviceList) {
         def service = serviceName.trim()
         def serviceConfig = commonVars.getServiceConfig(service)
