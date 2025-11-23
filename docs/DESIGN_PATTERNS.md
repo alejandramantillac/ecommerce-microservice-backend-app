@@ -438,66 +438,109 @@ public interface UserRepository extends JpaRepository<User, Integer> {
 
 ---
 
-## 8. Circuit Breaker Pattern (Configurado)
+## 8. Circuit Breaker Pattern
 
 ### Descripción
 El patrón Circuit Breaker previene fallos en cascada cuando un servicio dependiente no está disponible. Actúa como un interruptor eléctrico: cuando detecta demasiados fallos, "abre el circuito" y detiene las llamadas al servicio problemático, permitiendo que el sistema se recupere.
 
-### Estado Actual
-**Configuración presente**: Resilience4j está configurado en todos los servicios
+### Implementación
+**Tecnología**: Resilience4j integrado con Spring Cloud OpenFeign
 
-**Ubicación de configuración**: `{service}/src/main/resources/application.yml`
+**Ubicación principal**: `proxy-client/` - Servicio que realiza llamadas inter-servicios
 
-**Ejemplo de configuración**:
+**Configuración**: `proxy-client/src/main/resources/application.yml`
 ```yaml
 resilience4j:
   circuitbreaker:
     instances:
-      userService:
+      proxyService:
         register-health-indicator: true
         failure-rate-threshold: 50
         minimum-number-of-calls: 5
         wait-duration-in-open-state: 5s
         sliding-window-size: 10
         sliding-window-type: COUNT_BASED
+
+feign:
+  circuitbreaker:
+    enabled: true
 ```
 
-**Servicios con Circuit Breaker configurado**:
-- `api-gateway` - Instancia: `apiGateway`
-- `service-discovery` - Instancia: `serviceDiscovery`
-- `proxy-client` - Instancia: `proxyService`
-- `user-service` - Instancia: `userService`
-- `product-service` - Instancia: `productService`
-- `order-service` - Instancia: `orderService`
-- `payment-service` - Instancia: `paymentService`
-- `shipping-service` - Instancia: `shippingService`
-- `favourite-service` - Instancia: `favouriteService`
-- `cloud-config` - Instancia: `cloudConfig`
+**Feign Clients con Circuit Breaker**:
+Todos los Feign Clients principales tienen fallbacks implementados:
+- `UserClientService` - Fallback: `UserClientServiceFallback`
+- `ProductClientService` - Fallback: `ProductClientServiceFallback`
+- `PaymentClientService` - Fallback: `PaymentClientServiceFallback`
+- `OrderClientService` - Fallback: `OrderClientServiceFallback`
+- `FavouriteClientService` - Fallback: `FavouriteClientServiceFallback`
 
-### Limitación Actual
-⚠️ **El Circuit Breaker está configurado pero NO se usa activamente en el código Java**. 
+**Ejemplo de implementación**:
+```java
+@FeignClient(
+    name = "USER-SERVICE", 
+    path = "/user-service/api/users",
+    fallback = UserClientServiceFallback.class  // ← Circuit Breaker fallback
+)
+public interface UserClientService {
+    @GetMapping
+    ResponseEntity<UserUserServiceCollectionDtoResponse> findAll();
+    // ... más métodos
+}
+```
 
-- No hay anotaciones `@CircuitBreaker` en los métodos
-- No hay fallback methods implementados
-- La configuración existe pero no está conectada al código
+**Clases Fallback**:
+Cada fallback implementa la misma interfaz del Feign Client y proporciona respuestas por defecto cuando el servicio está no disponible:
 
-### Propósito (cuando se implemente completamente)
+```java
+@Component
+@Slf4j
+public class UserClientServiceFallback implements UserClientService {
+    @Override
+    public ResponseEntity<UserUserServiceCollectionDtoResponse> findAll() {
+        log.warn("Circuit breaker opened or USER-SERVICE unavailable.");
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+                .body(new UserUserServiceCollectionDtoResponse());
+    }
+    // ... implementación de todos los métodos
+}
+```
+
+### Propósito
 - **Prevenir fallos en cascada**: Detener llamadas a servicios que están fallando
 - **Degradación elegante**: Proporcionar respuestas alternativas cuando un servicio no está disponible
-- **Recuperación automática**: Intentar reconectar después de un período de tiempo
+- **Recuperación automática**: Intentar reconectar después de un período de tiempo (5 segundos configurado)
 - **Monitoreo**: Health indicators para detectar problemas
 
-### Beneficios Potenciales
+### Beneficios
 ✅ **Resiliencia**: El sistema continúa funcionando aunque algunos servicios fallen  
 ✅ **Performance**: Evita esperas innecesarias en servicios que no responden  
 ✅ **Observabilidad**: Métricas claras del estado de los circuitos  
 ✅ **Recuperación**: Reintentos automáticos cuando el servicio se recupera  
+✅ **Degradación elegante**: Respuestas HTTP 503 en lugar de timeouts o errores 500  
 
-### Nota
-Este patrón está **parcialmente implementado** y será mejorado en fases posteriores agregando:
-- Anotaciones `@CircuitBreaker` en métodos críticos
-- Clases fallback para manejar errores
-- Integración con Feign Clients
+### Flujo de Circuit Breaker
+```
+1. Request → Feign Client
+2. Si servicio responde → Retorna respuesta normal
+3. Si servicio falla → Circuit Breaker cuenta fallos
+4. Si fallos > threshold (50%) → Circuito ABIERTO
+5. Circuito abierto → Fallback se ejecuta automáticamente
+6. Después de wait-duration (5s) → Circuito HALF-OPEN
+7. Si prueba exitosa → Circuito CERRADO (normal)
+8. Si prueba falla → Circuito ABIERTO nuevamente
+```
+
+### Configuración de Parámetros
+- **failure-rate-threshold: 50%**: Se abre el circuito si más del 50% de las llamadas fallan
+- **minimum-number-of-calls: 5**: Mínimo de llamadas antes de evaluar el estado
+- **wait-duration-in-open-state: 5s**: Tiempo antes de intentar reconectar
+- **sliding-window-size: 10**: Ventana de las últimas 10 llamadas para evaluar
+- **sliding-window-type: COUNT_BASED**: Basado en número de llamadas (no tiempo)
+
+### Ubicación de Archivos
+- **Fallbacks**: `proxy-client/src/main/java/com/selimhorri/app/business/*/service/fallback/`
+- **Feign Clients**: `proxy-client/src/main/java/com/selimhorri/app/business/*/service/*ClientService.java`
+- **Configuración**: `proxy-client/src/main/resources/application.yml`
 
 ---
 
@@ -512,7 +555,7 @@ Este patrón está **parcialmente implementado** y será mejorado en fases poste
 | 5 | Distributed Tracing | ✅ Completo | Todos los servicios | Zipkin + Sleuth |
 | 6 | Feign Client | ✅ Completo | `proxy-client/` | Spring Cloud OpenFeign |
 | 7 | Layered Architecture | ✅ Completo | Todos los servicios | Spring Boot |
-| 8 | Circuit Breaker | ⚠️ Configurado | Todos los servicios | Resilience4j |
+| 8 | Circuit Breaker | ✅ Completo | `proxy-client/` | Resilience4j + Feign |
 
 ---
 

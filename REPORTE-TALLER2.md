@@ -181,19 +181,29 @@ La arquitectura implementa múltiples patrones de diseño que trabajan en conjun
 
 **Beneficios**: Separación clara de responsabilidades, alta testabilidad, y fácil mantenimiento.
 
-#### 2.2.8 Circuit Breaker Pattern (Configurado)
+#### 2.2.8 Circuit Breaker Pattern
 
-**Implementación**: Resilience4j configurado en todos los servicios
+**Implementación**: Resilience4j integrado con Spring Cloud OpenFeign en `proxy-client`
 
-**Estado**: ⚠️ **Configurado pero no implementado activamente en código**
+**Estado**: ✅ **Completamente implementado y funcional**
 
-**Descripción**: Protege el sistema de fallos en cascada cuando un servicio dependiente no está disponible.
+**Descripción**: Protege el sistema de fallos en cascada cuando un servicio dependiente no está disponible, proporcionando degradación elegante mediante fallbacks.
 
-**Configuración presente**: Todos los servicios tienen configuración de Resilience4j en `application.yml` con instancias específicas (ej: `userService`, `productService`, etc.) y parámetros como `failure-rate-threshold`, `wait-duration-in-open-state`, etc.
+**Implementación**: 
+- **Feign Clients con Fallbacks**: Todos los Feign Clients principales tienen clases fallback implementadas que se activan automáticamente cuando el circuito se abre
+- **Configuración**: `proxy-client/src/main/resources/application.yml` con `feign.circuitbreaker.enabled: true`
+- **Parámetros configurados**: `failure-rate-threshold: 50%`, `wait-duration-in-open-state: 5s`, `sliding-window-size: 10`
 
-**Limitación**: No hay anotaciones `@CircuitBreaker` en métodos ni fallback methods implementados. La configuración existe pero no está conectada al código Java.
+**Feign Clients protegidos**:
+- `UserClientService` → `UserClientServiceFallback`
+- `ProductClientService` → `ProductClientServiceFallback`
+- `PaymentClientService` → `PaymentClientServiceFallback`
+- `OrderClientService` → `OrderClientServiceFallback`
+- `FavouriteClientService` → `FavouriteClientServiceFallback`
 
-**Nota**: Este patrón será mejorado en fases posteriores para estar completamente funcional.
+**Funcionamiento**: Cuando un servicio falla repetidamente (más del 50% de las llamadas), el circuito se abre y automáticamente se ejecutan los métodos fallback, retornando respuestas HTTP 503 (Service Unavailable) en lugar de causar timeouts o errores 500.
+
+**Beneficios**: Previene fallos en cascada, mejora la resiliencia del sistema, y proporciona observabilidad mediante health indicators.
 
 **Documentación detallada**: Ver `docs/DESIGN_PATTERNS.md` para información completa de todos los patrones.
 
