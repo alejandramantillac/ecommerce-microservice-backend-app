@@ -66,8 +66,8 @@ pipeline {
 
                     sh """
                         set -e
-                        mkdir -p ${env.SECURITY_REPORT_DIR}
-                        kubectl --kubeconfig="${env.SECURITY_KUBECONFIG}" get pods -n "\${env.K8S_NAMESPACE}" -o jsonpath='{..image}' \
+                        mkdir -p "\${env.SECURITY_REPORT_DIR}"
+                        kubectl --kubeconfig="\${env.SECURITY_KUBECONFIG}" get pods -n "\${env.K8S_NAMESPACE}" -o jsonpath='{..image}' \
                             | tr ' ' '\\n' | sort -u | grep -v '^$' > "\${env.SECURITY_IMAGE_LIST}"
 
                         if [ ! -s "\${env.SECURITY_IMAGE_LIST}" ]; then
