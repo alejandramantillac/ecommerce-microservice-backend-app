@@ -5,7 +5,7 @@ pipeline {
     environment {
         TARGET_ENVIRONMENT = 'security'
         SECURITY_REPORT_DIR = 'security-reports'
-        SECURITY_IMAGE_LIST = "${SECURITY_REPORT_DIR}/image-list.txt"
+        SECURITY_IMAGE_LIST = "${SECURITY_REPORT_DIR}/images.txt"
         SECURITY_SUMMARY_CSV = "${SECURITY_REPORT_DIR}/summary.csv"
         SECURITY_SUMMARY_JSON = "${SECURITY_REPORT_DIR}/summary.json"
         SECURITY_DASHBOARD = "${SECURITY_REPORT_DIR}/security-dashboard.html"
@@ -31,7 +31,7 @@ pipeline {
                     def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
 
                     env.REGISTRY = commonVars.getRegistry()
-                    env.SCAN_SEVERITY = commonVars.getTrivySeverityThreshold()
+                    env.SCAN_SEVERITY = "CRITICAL,HIGH,MEDIUM,LOW"
                     env.CHANGED_SERVICES = 'security-scan'
                     env.K8S_NAMESPACE = commonVars.getNamespaces().staging
 
