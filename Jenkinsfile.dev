@@ -48,18 +48,27 @@ pipeline {
 
         stage('Build & Test') {
             steps {
+                script {
+                    def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    
+                    echo "Building changed services: ${env.CHANGED_SERVICES}"
+                    commonFunctions.buildServicesInParallel(
+                        env.CHANGED_SERVICES, 
+                        env.REGISTRY, 
+                        env.IMAGE_TAG, 
+                        env.LATEST_TAG
+                    )
+                }
+            }
+        }
+        
+        stage('SonarCloud Analysis') {
+            steps {
                 withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
                     script {
-                        def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
                         def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                        
-                        echo "Building changed services: ${env.CHANGED_SERVICES}"
-                        commonFunctions.buildServicesInParallel(
-                            env.CHANGED_SERVICES, 
-                            env.REGISTRY, 
-                            env.IMAGE_TAG, 
-                            env.LATEST_TAG
-                        )
+                        commonFunctions.runSonarAnalyses(env.CHANGED_SERVICES)
                     }
                 }
             }

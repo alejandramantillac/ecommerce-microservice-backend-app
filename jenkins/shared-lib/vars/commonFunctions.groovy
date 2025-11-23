@@ -284,4 +284,25 @@ def notifyFailure(environment, services) {
     echo "========================================="
 }
 
+def runSonarAnalyses(changedServices) {
+    def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
+    def serviceList = changedServices.split(',')
+
+    for (serviceName in serviceList) {
+        def service = serviceName.trim()
+
+        def serviceConfig = commonVars.getServiceConfig(service)
+        if (serviceConfig?.external) {
+            echo "Skipping SonarCloud analysis for external service: ${service}"
+            continue
+        }
+
+        echo "Starting SonarCloud analysis for ${service}..."
+        sh """
+            chmod +x jenkins/scripts/sonar-service.sh
+            jenkins/scripts/sonar-service.sh "${service}"
+        """
+    }
+}
+
 return this
