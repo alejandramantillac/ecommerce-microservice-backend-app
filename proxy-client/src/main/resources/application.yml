@@ -36,6 +36,20 @@ resilience4j:
         sliding-window-size: 10
         wait-duration-in-open-state: 5s
         sliding-window-type: COUNT_BASED
+  bulkhead:
+    instances:
+      paymentClientService:
+        max-concurrent-calls: 10
+        max-wait-duration: 2s
+      orderClientService:
+        max-concurrent-calls: 10
+        max-wait-duration: 2s
+      productClientService:
+        max-concurrent-calls: 20
+        max-wait-duration: 1s
+      userClientService:
+        max-concurrent-calls: 20
+        max-wait-duration: 1s
 
 feign:
   circuitbreaker:
@@ -51,9 +65,17 @@ management:
   health:
     circuitbreakers:
       enabled: true
+    bulkheads:
+      enabled: true
   endpoint:
     health:
       show-details: always
+    prometheus:
+      enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
 
 # Feature Toggle Configuration
 # Features can be enabled/disabled dynamically through Spring Cloud Config

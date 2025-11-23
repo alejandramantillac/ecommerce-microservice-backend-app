@@ -16,7 +16,6 @@ import com.selimhorri.app.business.payment.service.PaymentClientService;
 import com.selimhorri.app.feature.FeatureToggle;
 
 import lombok.RequiredArgsConstructor;
-
 @RestController
 @RequestMapping("/api/payments")
 @RequiredArgsConstructor

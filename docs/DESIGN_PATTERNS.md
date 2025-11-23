@@ -700,6 +700,183 @@ public void handleEnvironmentChange(EnvironmentChangeEvent event) {
 
 ---
 
+## 10. Bulkhead Pattern
+
+### Descripción
+El patrón Bulkhead aísla recursos del sistema para prevenir que fallos o sobrecargas en un servicio afecten a otros servicios. Limita el número de llamadas concurrentes a cada servicio dependiente, creando "compartimentos" aislados (como los bulkheads de un barco) que previenen que un compartimento inundado afecte a los demás.
+
+### Implementación
+**Tecnología**: Resilience4j Bulkhead integrado con Spring Cloud OpenFeign
+
+**Ubicación principal**: `proxy-client/` - Servicio que realiza llamadas inter-servicios
+
+**Configuración**: `proxy-client/src/main/resources/application.yml`
+```yaml
+resilience4j:
+  bulkhead:
+    instances:
+      productClientService:
+        max-concurrent-calls: 20
+        max-wait-duration: 1s
+      paymentClientService:
+        max-concurrent-calls: 10
+        max-wait-duration: 2s
+      orderClientService:
+        max-concurrent-calls: 10
+        max-wait-duration: 2s
+      userClientService:
+        max-concurrent-calls: 20
+        max-wait-duration: 1s
+
+management:
+  health:
+    bulkheads:
+      enabled: true
+  endpoint:
+    prometheus:
+      enabled: true
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+```
+
+**Implementación programática**: 
+Debido a limitaciones en Spring Cloud 2020.0.4, las anotaciones `@Bulkhead` no funcionan automáticamente con Feign Clients. Por lo tanto, se implementó una solución programática:
+
+1. **FeignBulkheadConfig.java**: Configura el bean `BulkheadRegistry` que lee la configuración de `application.yml`
+```java
+@Configuration
+public class FeignBulkheadConfig {
+    @Bean
+    public BulkheadRegistry bulkheadRegistry() {
+        return BulkheadRegistry.ofDefaults();
+    }
+}
+```
+
+2. **ProductServiceWrapper.java**: Wrapper que aplica Bulkhead programáticamente usando `Bulkhead.decorateSupplier()`
+```java
+@Service
+@RequiredArgsConstructor
+public class ProductServiceWrapper {
+    private final ProductClientService productClientService;
+    private final BulkheadRegistry bulkheadRegistry;
+    
+    public ResponseEntity<ProductDto> findById(String productId) {
+        Bulkhead bulkhead = bulkheadRegistry.bulkhead("productClientService");
+        return Bulkhead.decorateSupplier(bulkhead, () -> {
+            return productClientService.findById(productId);
+        }).get();
+    }
+    // ... más métodos
+}
+```
+
+3. **ProductController.java**: Usa `ProductServiceWrapper` en lugar de `ProductClientService` directamente
+```java
+@RestController
+@RequestMapping("/api/products")
+@RequiredArgsConstructor
+public class ProductController {
+    private final ProductServiceWrapper productServiceWrapper;
+    
+    @GetMapping("/{productId}")
+    public ResponseEntity<ProductDto> findById(@PathVariable String productId) {
+        return ResponseEntity.ok(productServiceWrapper.findById(productId).getBody());
+    }
+}
+```
+
+**Instancias de Bulkhead configuradas**:
+- `productClientService`: 20 llamadas concurrentes máximas, 1s max wait duration
+- `paymentClientService`: 10 llamadas concurrentes máximas, 2s max wait duration
+- `orderClientService`: 10 llamadas concurrentes máximas, 2s max wait duration
+- `userClientService`: 20 llamadas concurrentes máximas, 1s max wait duration
+
+### Propósito
+- **Aislamiento de recursos**: Previene que un servicio sobrecargado consuma todos los recursos del sistema
+- **Protección contra cascadas**: Limita el impacto de fallos en servicios dependientes
+- **Control de concurrencia**: Garantiza que no se excedan límites de capacidad definidos
+- **Prevención de timeouts**: Evita que demasiadas llamadas simultáneas causen timeouts en cascada
+
+### Beneficios
+✅ **Aislamiento**: Cada servicio tiene su propio "compartimento" con límites de concurrencia  
+✅ **Resiliencia**: Un servicio lento o caído no afecta a otros servicios  
+✅ **Control de recursos**: Límites claros de capacidad por servicio  
+✅ **Observabilidad**: Métricas detalladas para monitoreo y alertas  
+✅ **Prevención de cascadas**: Evita que fallos se propaguen a través del sistema  
+
+### Flujo de Bulkhead
+```
+1. Request → ProductController
+2. ProductController llama a ProductServiceWrapper
+3. ProductServiceWrapper obtiene Bulkhead instance del registry
+4. Bulkhead.decorateSupplier() envuelve la llamada
+5. Bulkhead verifica disponibilidad:
+   ├─ Si hay slots disponibles → Ejecuta llamada inmediatamente
+   ├─ Si no hay slots pero hay tiempo de espera → Espera hasta que haya disponibilidad
+   └─ Si se excede max-wait-duration → Lanza BulkheadFullException
+6. Métricas se actualizan (llamadas permitidas, rechazadas, tiempo de espera)
+```
+
+### Parámetros de Configuración
+
+**max-concurrent-calls**: Número máximo de llamadas concurrentes permitidas
+- `productClientService`: 20 (servicio de alto tráfico)
+- `paymentClientService`: 10 (servicio crítico con menor tráfico)
+- `orderClientService`: 10 (servicio crítico con menor tráfico)
+- `userClientService`: 20 (servicio de alto tráfico)
+
+**max-wait-duration**: Tiempo máximo que una llamada esperará por un slot disponible
+- `productClientService`: 1s (respuesta rápida esperada)
+- `paymentClientService`: 2s (puede tolerar más espera)
+- `orderClientService`: 2s (puede tolerar más espera)
+- `userClientService`: 1s (respuesta rápida esperada)
+
+### Métricas y Observabilidad
+
+**Health Indicators**: Disponibles en `/app/actuator/health`
+```json
+{
+  "components": {
+    "bulkheads": {
+      "status": "UP",
+      "details": {
+        "productClientService": {
+          "status": "UP",
+          "availableConcurrentCalls": 20,
+          "maxAllowedConcurrentCalls": 20
+        }
+      }
+    }
+  }
+}
+```
+
+**Métricas Prometheus**: Disponibles en `/app/actuator/prometheus`
+- `resilience4j_bulkhead_available_concurrent_calls{name="productClientService"}`: Llamadas concurrentes disponibles
+- `resilience4j_bulkhead_max_allowed_concurrent_calls{name="productClientService"}`: Límite máximo configurado
+- `resilience4j_bulkhead_rejected_calls_total{name="productClientService"}`: Total de llamadas rechazadas
+
+### Ubicación de Archivos
+- **Configuración**: `proxy-client/src/main/java/com/selimhorri/app/config/FeignBulkheadConfig.java`
+- **Wrapper**: `proxy-client/src/main/java/com/selimhorri/app/business/product/service/ProductServiceWrapper.java`
+- **Controller**: `proxy-client/src/main/java/com/selimhorri/app/business/product/controller/ProductController.java`
+- **Configuración YAML**: `proxy-client/src/main/resources/application.yml` (sección `resilience4j.bulkhead`)
+- **Dependencias**: `proxy-client/pom.xml` (resilience4j-bulkhead, vavr)
+- **Seguridad**: `proxy-client/src/main/java/com/selimhorri/app/security/SecurityConfig.java` (permite acceso a `/actuator/prometheus/**`)
+- **Tests**:
+  - `proxy-client/src/test/java/com/selimhorri/app/config/BulkheadConfigurationTest.java` (verifica configuración)
+  - `proxy-client/src/test/java/com/selimhorri/app/config/BulkheadIntegrationTest.java` (verifica health indicators)
+
+### Notas de Implementación
+- **Implementación programática**: Se usa `Bulkhead.decorateSupplier()` en lugar de anotaciones `@Bulkhead` debido a limitaciones en Spring Cloud 2020.0.4
+- **Solo ProductService**: Actualmente solo `ProductService` tiene implementación completa y funcional del patrón Bulkhead mediante `ProductServiceWrapper`
+- **Extensibilidad**: El patrón puede extenderse a otros servicios creando wrappers similares para `PaymentClientService`, `OrderClientService`, etc.
+
+---
+
 ## Resumen de Patrones Implementados
 
 | # | Patrón | Estado | Ubicación Principal | Tecnología |
@@ -713,6 +890,7 @@ public void handleEnvironmentChange(EnvironmentChangeEvent event) {
 | 7 | Layered Architecture | ✅ Completo | Todos los servicios | Spring Boot |
 | 8 | Circuit Breaker | ✅ Completo | `proxy-client/` | Resilience4j + Feign |
 | 9 | Feature Toggle | ✅ Completo | `proxy-client/` | Spring AOP + Config |
+| 10 | Bulkhead | ✅ Completo | `proxy-client/` | Resilience4j Bulkhead |
 
 ---
 
@@ -782,12 +960,24 @@ public void handleEnvironmentChange(EnvironmentChangeEvent event) {
 **Circuit Breaker**:
 - Todos los `application.yml` contienen configuración de Resilience4j (líneas 26-38 aproximadamente)
 
+**Bulkhead**:
+- `proxy-client/src/main/resources/application.yml` contiene configuración de Bulkhead (sección `resilience4j.bulkhead`)
+- `proxy-client/src/main/java/com/selimhorri/app/config/FeignBulkheadConfig.java` - Configuración del registry
+- `proxy-client/src/main/java/com/selimhorri/app/business/product/service/ProductServiceWrapper.java` - Implementación programática
+
 ---
 
 ## Conclusión
 
-La arquitectura implementa **7 patrones completamente funcionales** y **1 patrón configurado pero pendiente de implementación en código**. Estos patrones trabajan juntos para crear un sistema de microservicios resiliente, escalable y mantenible.
+La arquitectura implementa **10 patrones completamente funcionales**. Estos patrones trabajan juntos para crear un sistema de microservicios resiliente, escalable y mantenible.
 
-Los patrones están bien integrados y proporcionan una base sólida para el sistema. El Circuit Breaker, aunque configurado, requiere implementación adicional en el código para estar completamente funcional.
+Los patrones están bien integrados y proporcionan una base sólida para el sistema:
+- **Patrones de comunicación**: API Gateway, Service Discovery, Feign Client
+- **Patrones de resiliencia**: Circuit Breaker, Bulkhead
+- **Patrones de configuración**: External Configuration, Feature Toggle
+- **Patrones de observabilidad**: Distributed Tracing
+- **Patrones arquitectónicos**: Layered Architecture, Database per Service
+
+Cada patrón cumple un rol específico y complementa a los demás, creando un sistema robusto y preparado para producción.
 
 

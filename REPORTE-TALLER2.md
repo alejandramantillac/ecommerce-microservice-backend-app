@@ -213,29 +213,61 @@ La arquitectura implementa múltiples patrones de diseño que trabajan en conjun
 
 **Estado**: ✅ **Completamente implementado y funcional**
 
-**Descripción**: Permite habilitar o deshabilitar funcionalidades de forma dinámica sin necesidad de redeployar la aplicación, facilitando testing A/B, rollouts graduales y kill switches.
+**Descripción**: Permite habilitar o deshabilitar funcionalidades dinámicamente sin necesidad de redeploy, proporcionando control granular sobre features del sistema.
 
 **Implementación**: 
-- **Anotación `@FeatureToggle`**: Marca métodos/endpoints controlados por feature toggle
-- **FeatureToggleService**: Gestiona el estado de los features con soporte para configuración dinámica mediante `@RefreshScope`
-- **FeatureToggleAspect**: Intercepta métodos anotados usando Spring AOP
-- **FeatureToggleController**: Endpoint de administración (`/api/admin/features`) para gestionar features dinámicamente
-- **Integración con Spring Cloud Config**: Los features pueden configurarse en el Config Server y actualizarse sin reiniciar
+- **Anotación `@FeatureToggle`**: Aplicada en métodos de controllers para controlar acceso a funcionalidades
+- **Aspect AOP**: Intercepta métodos anotados y verifica el estado del feature
+- **Configuración**: `proxy-client/src/main/resources/application.yml` con propiedades `feature.toggle.*`
+- **Endpoints de administración**: `/app/api/admin/features/**` para gestión dinámica
 
 **Features configurados**:
-- `new-payment-method` - Controla el endpoint de creación de pagos (habilitado por defecto)
-- `advanced-search` - Controla búsqueda avanzada de productos (deshabilitado por defecto)
-- `recommendation-engine` - Controla motor de recomendaciones (deshabilitado por defecto)
-- `bulk-operations` - Controla operaciones masivas (habilitado por defecto)
+- `new-payment-method`: Habilitado por defecto
+- `advanced-search`: Deshabilitado por defecto
+- `recommendation-engine`: Deshabilitado por defecto
+- `bulk-operations`: Habilitado por defecto
 
-**Endpoints con Feature Toggle aplicado**:
-- `POST /api/payments` - Controlado por `new-payment-method`
-- `GET /api/products` - Controlado por `advanced-search`
-- `GET /api/favourites` - Controlado por `recommendation-engine`
+**Beneficios**: Control dinámico de features, testing A/B, rollout gradual, kill switch rápido, y configuración por ambiente.
 
-**Funcionamiento**: Cuando un endpoint anotado con `@FeatureToggle` es invocado, el aspect verifica si el feature está habilitado. Si está deshabilitado, se lanza `FeatureDisabledException` que retorna HTTP 503 (Service Unavailable).
+**Documentación detallada**: Ver `docs/DESIGN_PATTERNS.md` para información completa de todos los patrones.
 
-**Beneficios**: Permite despliegue continuo sin riesgo, control granular de features, testing en producción, rollback rápido, y configuración dinámica sin reiniciar la aplicación.
+#### 2.2.10 Bulkhead Pattern
+
+**Implementación**: Resilience4j Bulkhead con Spring Cloud OpenFeign en `proxy-client`
+
+**Estado**: ✅ **Completamente implementado y funcional**
+
+**Descripción**: Aísla recursos del sistema para prevenir que fallos en un servicio afecten a otros, limitando el número de llamadas concurrentes a cada servicio dependiente.
+
+**Implementación**: 
+- **Configuración programática**: `ProductServiceWrapper` aplica Bulkhead usando `Bulkhead.decorateSupplier()`
+- **Configuración**: `proxy-client/src/main/resources/application.yml` con instancias de Bulkhead para cada Feign Client
+- **BulkheadRegistry**: Bean configurado en `FeignBulkheadConfig.java` que lee configuración de `application.yml`
+- **Health Indicators**: Habilitados en Actuator para monitoreo
+
+**Instancias de Bulkhead configuradas**:
+- `productClientService`: 20 llamadas concurrentes máximas, 1s max wait duration
+- `paymentClientService`: 10 llamadas concurrentes máximas, 2s max wait duration
+- `orderClientService`: 10 llamadas concurrentes máximas, 2s max wait duration
+- `userClientService`: 20 llamadas concurrentes máximas, 1s max wait duration
+
+**Implementación técnica**:
+- `ProductServiceWrapper`: Wrapper que aplica Bulkhead programáticamente a todas las llamadas de `ProductClientService`
+- `FeignBulkheadConfig`: Configuración centralizada que proporciona `BulkheadRegistry` bean
+- `ProductController`: Actualizado para usar `ProductServiceWrapper` en lugar de `ProductClientService` directamente
+
+**Funcionamiento**: Cuando se alcanza el límite de llamadas concurrentes, las llamadas adicionales esperan hasta que haya disponibilidad (hasta el `max-wait-duration`). Si el tiempo de espera se excede, se lanza una excepción.
+
+**Métricas y Observabilidad**:
+- Health indicators disponibles en `/app/actuator/health` (sección `bulkheads`)
+- Métricas Prometheus en `/app/actuator/prometheus` (prefijo `resilience4j_bulkhead_*`)
+- Métricas incluyen: llamadas permitidas, rechazadas, tiempo de espera, etc.
+
+**Beneficios**: 
+- **Aislamiento de recursos**: Previene que un servicio sobrecargado afecte a otros
+- **Protección contra cascadas**: Limita el impacto de fallos en servicios dependientes
+- **Control de concurrencia**: Garantiza que no se excedan límites de capacidad
+- **Observabilidad**: Métricas detalladas para monitoreo y alertas
 
 **Documentación detallada**: Ver `docs/DESIGN_PATTERNS.md` para información completa de todos los patrones.
 

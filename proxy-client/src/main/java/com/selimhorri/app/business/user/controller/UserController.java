@@ -15,7 +15,6 @@ import com.selimhorri.app.business.user.model.response.UserUserServiceCollection
 import com.selimhorri.app.business.user.service.UserClientService;
 
 import lombok.RequiredArgsConstructor;
-
 @RestController
 @RequestMapping("/api/users")
 @RequiredArgsConstructor
