@@ -30,6 +30,12 @@ pipeline {
                     commonFunctions.initializePipelineVariables()
                     env.IMAGE_TAG = commonFunctions.generateImageTag(env.GIT_BRANCH, env.GIT_COMMIT_SHORT, 'dev')
                     env.LATEST_TAG = "latest-dev"
+                    env.SONAR_HOST_URL = commonVars.getSonarHostUrl()
+                    env.SONAR_ORGANIZATION = commonVars.getSonarOrganization()
+                    env.SONAR_ENFORCE_QUALITY_GATE = commonVars.getSonarEnforceQualityGate()
+                    env.TRIVY_SEVERITY_THRESHOLD = commonVars.getTrivySeverityThreshold()
+                    env.TRIVY_EXIT_ON_FAILURE = commonVars.getTrivyExitOnFailure()
+                    env.TRIVY_REPORT_FORMAT = commonVars.getTrivyReportFormat()
                     
                     commonFunctions.printDeploymentInfo(env.TARGET_ENVIRONMENT, env.IMAGE_TAG)
                     
