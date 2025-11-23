@@ -64,17 +64,24 @@ pipeline {
 
                     env.SECURITY_KUBECONFIG = "${env.WORKSPACE}/.kube/security-${env.K8S_NAMESPACE}"
 
-                    sh """
-                        set -e
-                        mkdir -p "\${env.SECURITY_REPORT_DIR}"
-                        kubectl --kubeconfig="\${env.SECURITY_KUBECONFIG}" get pods -n "\${env.K8S_NAMESPACE}" -o jsonpath='{..image}' \
-                            | tr ' ' '\\n' | sort -u | grep -v '^$' > "\${env.SECURITY_IMAGE_LIST}"
+                    withEnv([
+                        "SECURITY_KUBECONFIG=${env.SECURITY_KUBECONFIG}",
+                        "SECURITY_REPORT_DIR=${env.SECURITY_REPORT_DIR}",
+                        "SECURITY_IMAGE_LIST=${env.SECURITY_IMAGE_LIST}",
+                        "SECURITY_NAMESPACE=${env.K8S_NAMESPACE}"
+                    ]) {
+                        sh '''
+                            set -e
+                            mkdir -p "${SECURITY_REPORT_DIR}"
+                            kubectl --kubeconfig="${SECURITY_KUBECONFIG}" get pods -n "${SECURITY_NAMESPACE}" -o jsonpath='{..image}' \
+                                | tr ' ' '\n' | sort -u | grep -v '^$' > "${SECURITY_IMAGE_LIST}"
 
-                        if [ ! -s "\${env.SECURITY_IMAGE_LIST}" ]; then
-                            echo "No images found in \${env.K8S_NAMESPACE} namespace." >&2
-                            exit 1
-                        fi
-                    """
+                            if [ ! -s "${SECURITY_IMAGE_LIST}" ]; then
+                                echo "No images found in ${SECURITY_NAMESPACE} namespace." >&2
+                                exit 1
+                            fi
+                        '''
+                    }
                 }
             }
         }
@@ -84,11 +91,11 @@ pipeline {
                 script {
                     sh """
                         chmod +x jenkins/scripts/security-scan-images.sh
-                        jenkins/scripts/security-scan-images.sh \\
-                            "${env.SECURITY_IMAGE_LIST}" \\
-                            "${env.SECURITY_REPORT_DIR}" \\
-                            "${env.SECURITY_SUMMARY_CSV}" \\
-                            "${env.SECURITY_SUMMARY_JSON}" \\
+                        jenkins/scripts/security-scan-images.sh \
+                            "${env.SECURITY_IMAGE_LIST}" \
+                            "${env.SECURITY_REPORT_DIR}" \
+                            "${env.SECURITY_SUMMARY_CSV}" \
+                            "${env.SECURITY_SUMMARY_JSON}" \
                             "${env.SCAN_SEVERITY}"
                     """
                 }
@@ -98,8 +105,8 @@ pipeline {
         stage('Generate Security Dashboard') {
             steps {
                 sh """
-                    python3 jenkins/scripts/security-generate-dashboard.py \\
-                        "${env.SECURITY_SUMMARY_JSON}" \\
+                    python3 jenkins/scripts/security-generate-dashboard.py \
+                        "${env.SECURITY_SUMMARY_JSON}" \
                         "${env.SECURITY_DASHBOARD}"
                 """
             }
@@ -171,4 +178,3 @@ pipeline {
         }
     }
 }
-
