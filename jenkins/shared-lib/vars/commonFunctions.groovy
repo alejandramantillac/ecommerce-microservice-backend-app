@@ -192,11 +192,11 @@ def collectPodImages(namespace, kubeconfigPath, reportDir) {
     def imageListFile = "${reportDir}/images.txt"
     sh """
         set -e
-        mkdir -p "${reportDir}"
-        kubectl --kubeconfig="${kubeconfigPath}" get pods -n "${namespace}" -o jsonpath='{..image}' \
-            | tr ' ' '\\n' | sort -u | grep -v '^$' > "${imageListFile}"
+        mkdir -p ${reportDir}
+        kubectl --kubeconfig=${kubeconfigPath} get pods -n ${namespace} -o jsonpath='{..image}' \
+            | tr ' ' '\\n' | sort -u | grep -v '^$' > ${imageListFile}
 
-        if [ ! -s "${imageListFile}" ]; then
+        if [ ! -s ${imageListFile} ]; then
             echo "No images found in ${namespace} namespace." >&2
             exit 1
         fi
