@@ -19,8 +19,8 @@ REPORT_FILENAME="trivy-report-${SERVICE_NAME}.json"
 
 mkdir -p "${REPORT_DIR}"
 
-if [ -f "jenkins/scripts/scan-image-trivy.sh" ]; then
-    chmod +x jenkins/scripts/scan-image-trivy.sh
+if [ -f "jenkins/scan/scan-image-trivy.sh" ]; then
+    chmod +x jenkins/scan/scan-image-trivy.sh
 
     # Get severity threshold and options from environment
     TRIVY_SEVERITY="$TRIVY_SEVERITY_THRESHOLD"
@@ -28,7 +28,7 @@ if [ -f "jenkins/scripts/scan-image-trivy.sh" ]; then
     TRIVY_REPORT_FORMAT="$TRIVY_REPORT_FORMAT"
 
     # Pass the report output path as an additional argument
-    jenkins/scripts/scan-image-trivy.sh \
+    jenkins/scan/scan-image-trivy.sh \
         "${REGISTRY}/${SERVICE_NAME}:${IMAGE_TAG}" \
         "${TRIVY_SEVERITY}" \
         "${TRIVY_EXIT_ON_FAILURE}" \

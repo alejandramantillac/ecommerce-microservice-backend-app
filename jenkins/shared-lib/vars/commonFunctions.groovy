@@ -167,6 +167,44 @@ def applyConfigMap(environment, namespace) {
     """
 }
 
+def getAndConfigureKubeConfigFromTerraform(envNamespace, armClientId, armClientSecret, armTenantId) {
+    withCredentials([
+        string(credentialsId: 'ARM_CLIENT_ID', variable: 'ARM_CLIENT_ID'),
+        string(credentialsId: 'ARM_CLIENT_SECRET', variable: 'ARM_CLIENT_SECRET'),
+        string(credentialsId: 'ARM_SUBSCRIPTION_ID', variable: 'ARM_SUBSCRIPTION_ID'),
+        string(credentialsId: 'ARM_TENANT_ID', variable: 'ARM_TENANT_ID')
+    ]) {
+        sh """
+            set -e
+            mkdir -p \${WORKSPACE}/.kube
+            cd infra/terraform/environments/${envNamespace}
+            terraform init -input=false >/dev/null
+            RG_NAME=\$(terraform output -raw resource_group_name)
+            AKS_NAME=\$(terraform output -raw aks_cluster_name)
+            az login --service-principal -u "\$ARM_CLIENT_ID" -p "\$ARM_CLIENT_SECRET" --tenant "\$ARM_TENANT_ID" >/dev/null
+            az aks get-credentials --resource-group "\$RG_NAME" --name "\$AKS_NAME" --file "\${WORKSPACE}/.kube/security-${envNamespace}" --overwrite-existing
+        """
+    }
+    return "${env.WORKSPACE}/.kube/security-${envNamespace}"
+}
+
+def collectPodImages(namespace, kubeconfigPath, reportDir) {
+    def imageListFile = "${reportDir}/images.txt"
+    sh """
+        set -e
+        mkdir -p "${reportDir}"
+        kubectl --kubeconfig="${kubeconfigPath}" get pods -n "${namespace}" -o jsonpath='{..image}' \
+            | tr ' ' '\\n' | sort -u | grep -v '^$' > "${imageListFile}"
+
+        if [ ! -s "${imageListFile}" ]; then
+            echo "No images found in ${namespace} namespace." >&2
+            exit 1
+        fi
+    """
+    return imageListFile
+}
+
+
 def deployService(serviceConfig, environment, namespace, registry, imageTag) {
     def serviceName = serviceConfig.name
     def serviceConfigJson = JsonOutput.toJson(serviceConfig)
@@ -219,25 +257,25 @@ def runAllTests(namespace) {
 
 def runIntegrationTests(namespace, apiGatewayUrl) {
     sh """
-        chmod +x jenkins/scripts/integration-tests.sh
+        chmod +x jenkins/tests/integration-tests.sh
         export KCFG="\${KCFG}"
-        jenkins/scripts/integration-tests.sh "${namespace}" "${apiGatewayUrl}"
+        jenkins/tests/integration-tests.sh "${namespace}" "${apiGatewayUrl}"
     """
 }
 
 def runE2ETests(namespace, apiGatewayUrl) {
     sh """
-        chmod +x jenkins/scripts/e2e-tests.sh
+        chmod +x jenkins/tests/e2e-tests.sh
         export KCFG="\${KCFG}"
-        jenkins/scripts/e2e-tests.sh "${namespace}" "${apiGatewayUrl}"
+        jenkins/tests/e2e-tests.sh "${namespace}" "${apiGatewayUrl}"
     """
 }
 
 def runPerformanceTests(namespace, apiGatewayUrl, users = '50', spawnRate = '10', runTime = '300s') {
     sh """
-        chmod +x jenkins/scripts/performance-tests.sh
+        chmod +x jenkins/tests/performance-tests.sh
         export KCFG="\${KCFG}"
-        jenkins/scripts/performance-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}"
+        jenkins/tests/performance-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}"
     """
     
     archiveArtifacts artifacts: 'performance-report.html,performance-data*.csv', 
@@ -313,10 +351,32 @@ def runSonarAnalyses(changedServices) {
 
         echo "Starting SonarCloud analysis for ${service}..."
         sh """
-            chmod +x jenkins/scripts/sonar-service.sh
-            jenkins/scripts/sonar-service.sh "${service}"
+            chmod +x jenkins/scan/sonar-service.sh
+            jenkins/scan/sonar-service.sh "${service}"
         """
     }
+}
+
+// Función para generar el dashboard de seguridad
+def generateSecurityDashboard(summaryJsonPath, dashboardOutputPath) {
+    sh """
+        python3 jenkins/scan/security-generate-dashboard.py \
+            "${summaryJsonPath}" \
+            "${dashboardOutputPath}"
+    """
+}
+
+// Función para escanear las imágenes con Trivy
+def scanImagesWithTrivy(imageListPath, reportDir, summaryCsvPath, summaryJsonPath, severity) {
+    sh """
+        chmod +x jenkins/scan/security-scan-images.sh
+        jenkins/scan/security-scan-images.sh \
+            "${imageListPath}" \
+            "${reportDir}" \
+            "${summaryCsvPath}" \
+            "${summaryJsonPath}" \
+            "${severity}"
+    """
 }
 
 def runTrivyScans(changedServices, registry, imageTag) {
@@ -333,10 +393,16 @@ def runTrivyScans(changedServices, registry, imageTag) {
 
         echo "Starting Trivy scan for ${service}..."
 
-        sh """
-            chmod +x jenkins/scripts/trivy-service.sh
-            jenkins/scripts/trivy-service.sh "${serviceName}" "${registry}" "${imageTag}"
-        """
+        // Reuse scanImagesWithTrivy for image-based scanning.
+        def imageName = "${registry}/${service}:${imageTag}"
+        def reportDir = "trivy-reports/${service}"
+        def summaryCsvPath = "${reportDir}/summary.csv"
+        def summaryJsonPath = "${reportDir}/summary.json"
+        // Use a default severity or it can be parameterized if needed
+        def severity = commonVars.getTrivySeverityThreshold()
+
+        // Call the reusable Trivy scan function
+        scanImagesWithTrivy(imageName, reportDir, summaryCsvPath, summaryJsonPath, severity)
     }
 
     archiveArtifacts artifacts: 'trivy-reports/**/*.json', fingerprint: true, allowEmptyArchive: true

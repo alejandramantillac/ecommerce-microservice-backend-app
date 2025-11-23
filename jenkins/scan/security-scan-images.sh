@@ -22,7 +22,7 @@ while IFS= read -r image || [[ -n "$image" ]]; do
     image="$(echo "$image" | xargs)"
     if [[ -z "$image" ]]; then
         continue
-    }
+    fi
 
     service="$(echo "$image" | awk -F'/' '{print $NF}' | cut -d':' -f1)"
     safe_name="$(echo "$image" | sed 's|[/:]|-|g')"

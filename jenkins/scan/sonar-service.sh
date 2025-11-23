@@ -51,10 +51,10 @@ popd >/dev/null
 
 echo "✓ SonarCloud analysis finished for ${SERVICE_NAME}"
 
-if [ "${ENFORCE_QUALITY_GATE}" = "true" ] && [ -f "jenkins/scripts/check-sonarqube-quality-gate.sh" ]; then
+if [ "${ENFORCE_QUALITY_GATE}" = "true" ] && [ -f "jenkins/scan/check-sonarqube-quality-gate.sh" ]; then
     echo "Checking Quality Gate for ${SERVICE_NAME}..."
-    chmod +x jenkins/scripts/check-sonarqube-quality-gate.sh
-    jenkins/scripts/check-sonarqube-quality-gate.sh \
+    chmod +x jenkins/scan/check-sonarqube-quality-gate.sh
+    jenkins/scan/check-sonarqube-quality-gate.sh \
         "${SONAR_PROJECT_KEY}" \
         "${SONAR_HOST_URL}" \
         "${SONAR_TOKEN}" \
