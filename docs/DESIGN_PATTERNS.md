@@ -606,9 +606,10 @@ public ResponseEntity<ProductProductServiceCollectionDtoResponse> findAll() {
 ```
 
 **Endpoints con Feature Toggle aplicado** (con context-path `/app`):
-- `POST /app/api/payments` - Controlado por `new-payment-method` (método `save()`)
-- `GET /app/api/products` - Controlado por `advanced-search` (método `findAll()`)
-- `GET /app/api/favourites` - Controlado por `recommendation-engine` (método `findAll()`)
+- `POST /app/api/payments` - Controlado por `new-payment-method` (método `save()` en `PaymentController`)
+- `GET /app/api/favourites` - Controlado por `recommendation-engine` (método `findAll()` en `FavouriteController`)
+
+**Nota**: El endpoint `GET /app/api/products` mencionado en versiones anteriores de la documentación no tiene Feature Toggle implementado actualmente. El `ProductController` no utiliza la anotación `@FeatureToggle`.
 
 **Endpoints de administración**: `/app/api/admin/features`
 - `GET /app/api/admin/features` - Listar todos los features
@@ -690,9 +691,8 @@ public void handleEnvironmentChange(EnvironmentChangeEvent event) {
 - **Seguridad**: `proxy-client/src/main/java/com/selimhorri/app/security/SecurityConfig.java`
   - Endpoints `/app/api/admin/features/**` requieren rol `ADMIN`
 - **Controllers que usan Feature Toggle**:
-  - `proxy-client/src/main/java/com/selimhorri/app/business/payment/controller/PaymentController.java`
-  - `proxy-client/src/main/java/com/selimhorri/app/business/product/controller/ProductController.java`
-  - `proxy-client/src/main/java/com/selimhorri/app/business/favourite/controller/FavouriteController.java`
+  - `proxy-client/src/main/java/com/selimhorri/app/business/payment/controller/PaymentController.java` - Método `save()` con `@FeatureToggle(name = "new-payment-method")`
+  - `proxy-client/src/main/java/com/selimhorri/app/business/favourite/controller/FavouriteController.java` - Método `findAll()` con `@FeatureToggle(name = "recommendation-engine")`
 - **Tests unitarios**:
   - `proxy-client/src/test/java/com/selimhorri/app/feature/service/FeatureToggleServiceTest.java` (9 tests)
   - `proxy-client/src/test/java/com/selimhorri/app/feature/aspect/FeatureToggleAspectTest.java` (5 tests)
@@ -836,7 +836,7 @@ public class ProductController {
 
 ### Métricas y Observabilidad
 
-**Health Indicators**: Disponibles en `/app/actuator/health`
+**Health Indicators**: Disponibles en `/app/actuator/health` (solo aparecen cuando se usan las instancias de Bulkhead)
 ```json
 {
   "components": {
@@ -853,11 +853,14 @@ public class ProductController {
   }
 }
 ```
+**Nota**: Solo `productClientService` aparecerá en los health indicators ya que es el único servicio con implementación funcional.
 
-**Métricas Prometheus**: Disponibles en `/app/actuator/prometheus`
+**Métricas Prometheus**: Disponibles en `/app/actuator/prometheus` (solo aparecen cuando se usan las instancias de Bulkhead)
 - `resilience4j_bulkhead_available_concurrent_calls{name="productClientService"}`: Llamadas concurrentes disponibles
 - `resilience4j_bulkhead_max_allowed_concurrent_calls{name="productClientService"}`: Límite máximo configurado
 - `resilience4j_bulkhead_rejected_calls_total{name="productClientService"}`: Total de llamadas rechazadas
+
+**Nota**: Las métricas solo estarán disponibles para `productClientService` ya que es el único servicio con implementación funcional. Las instancias configuradas para otros servicios no generarán métricas hasta que se implementen wrappers para ellos.
 
 ### Ubicación de Archivos
 - **Configuración**: `proxy-client/src/main/java/com/selimhorri/app/config/FeignBulkheadConfig.java`
@@ -871,9 +874,10 @@ public class ProductController {
   - `proxy-client/src/test/java/com/selimhorri/app/config/BulkheadIntegrationTest.java` (verifica health indicators)
 
 ### Notas de Implementación
-- **Implementación programática**: Se usa `Bulkhead.decorateSupplier()` en lugar de anotaciones `@Bulkhead` debido a limitaciones en Spring Cloud 2020.0.4
-- **Solo ProductService**: Actualmente solo `ProductService` tiene implementación completa y funcional del patrón Bulkhead mediante `ProductServiceWrapper`
-- **Extensibilidad**: El patrón puede extenderse a otros servicios creando wrappers similares para `PaymentClientService`, `OrderClientService`, etc.
+- **Implementación programática**: Se usa `Bulkhead.decorateSupplier()` en lugar de anotaciones `@Bulkhead` debido a limitaciones en Spring Cloud 2020.0.4 con Feign Clients
+- **Solo ProductService implementado**: Actualmente solo `ProductService` tiene implementación completa y funcional del patrón Bulkhead mediante `ProductServiceWrapper`. Aunque las instancias de Bulkhead están configuradas en `application.yml` para `paymentClientService`, `orderClientService` y `userClientService`, estos servicios NO tienen wrappers implementados y por lo tanto NO tienen Bulkhead aplicado en sus llamadas
+- **Configuración vs Implementación**: Las instancias de Bulkhead configuradas en `application.yml` para otros servicios están disponibles en el `BulkheadRegistry`, pero no se utilizan porque no hay wrappers que las apliquen
+- **Extensibilidad**: El patrón puede extenderse a otros servicios creando wrappers similares a `ProductServiceWrapper` para `PaymentClientService`, `OrderClientService`, `UserClientService`, etc.
 
 ---
 

@@ -245,23 +245,26 @@ La arquitectura implementa múltiples patrones de diseño que trabajan en conjun
 - **BulkheadRegistry**: Bean configurado en `FeignBulkheadConfig.java` que lee configuración de `application.yml`
 - **Health Indicators**: Habilitados en Actuator para monitoreo
 
-**Instancias de Bulkhead configuradas**:
-- `productClientService`: 20 llamadas concurrentes máximas, 1s max wait duration
-- `paymentClientService`: 10 llamadas concurrentes máximas, 2s max wait duration
-- `orderClientService`: 10 llamadas concurrentes máximas, 2s max wait duration
-- `userClientService`: 20 llamadas concurrentes máximas, 1s max wait duration
+**Instancias de Bulkhead configuradas en `application.yml`**:
+- `productClientService`: 20 llamadas concurrentes máximas, 1s max wait duration ✅ **Implementado y funcional**
+- `paymentClientService`: 10 llamadas concurrentes máximas, 2s max wait duration ⚠️ **Solo configurado, no implementado**
+- `orderClientService`: 10 llamadas concurrentes máximas, 2s max wait duration ⚠️ **Solo configurado, no implementado**
+- `userClientService`: 20 llamadas concurrentes máximas, 1s max wait duration ⚠️ **Solo configurado, no implementado**
 
 **Implementación técnica**:
-- `ProductServiceWrapper`: Wrapper que aplica Bulkhead programáticamente a todas las llamadas de `ProductClientService`
-- `FeignBulkheadConfig`: Configuración centralizada que proporciona `BulkheadRegistry` bean
-- `ProductController`: Actualizado para usar `ProductServiceWrapper` en lugar de `ProductClientService` directamente
+- `ProductServiceWrapper`: Wrapper que aplica Bulkhead programáticamente a todas las llamadas de `ProductClientService` ✅ **Implementado**
+- `FeignBulkheadConfig`: Configuración centralizada que proporciona `BulkheadRegistry` bean ✅ **Implementado**
+- `ProductController`: Actualizado para usar `ProductServiceWrapper` en lugar de `ProductClientService` directamente ✅ **Implementado**
+
+**Nota importante**: Solo `ProductService` tiene implementación completa y funcional del patrón Bulkhead. Los otros servicios (`PaymentClientService`, `OrderClientService`, `UserClientService`) tienen instancias de Bulkhead configuradas en `application.yml`, pero no tienen wrappers implementados, por lo que el Bulkhead NO se aplica a sus llamadas. Para extender el patrón a otros servicios, se necesitarían wrappers similares a `ProductServiceWrapper`.
 
 **Funcionamiento**: Cuando se alcanza el límite de llamadas concurrentes, las llamadas adicionales esperan hasta que haya disponibilidad (hasta el `max-wait-duration`). Si el tiempo de espera se excede, se lanza una excepción.
 
 **Métricas y Observabilidad**:
-- Health indicators disponibles en `/app/actuator/health` (sección `bulkheads`)
-- Métricas Prometheus en `/app/actuator/prometheus` (prefijo `resilience4j_bulkhead_*`)
+- Health indicators disponibles en `/app/actuator/health` (sección `bulkheads`) - Solo aparecerán cuando se usen las instancias de Bulkhead
+- Métricas Prometheus en `/app/actuator/prometheus` (prefijo `resilience4j_bulkhead_*`) - Solo aparecerán cuando se usen las instancias de Bulkhead
 - Métricas incluyen: llamadas permitidas, rechazadas, tiempo de espera, etc.
+- **Nota**: Las métricas solo estarán disponibles para `productClientService` ya que es el único servicio con implementación funcional
 
 **Beneficios**: 
 - **Aislamiento de recursos**: Previene que un servicio sobrecargado afecte a otros
