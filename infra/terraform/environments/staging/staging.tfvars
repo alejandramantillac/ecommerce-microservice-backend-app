@@ -23,8 +23,7 @@ aks_subnet_key = "core"
 db_subnet_key  = "data"
 
 aks_node_vm_size      = "Standard_B2ms"
-aks_node_count        = 1
-enable_auto_scaling   = false
+aks_node_count        = 3
 
 storage_replication_type = "LRS"
 
