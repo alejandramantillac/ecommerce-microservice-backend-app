@@ -190,17 +190,24 @@ def getAndConfigureKubeConfigFromTerraform(envNamespace, armClientId, armClientS
 
 def collectPodImages(namespace, kubeconfigPath, reportDir) {
     def imageListFile = "${reportDir}/images.txt"
-    sh """
-        set -e
-        mkdir -p ${reportDir}
-        kubectl --kubeconfig=${kubeconfigPath} get pods -n ${namespace} -o jsonpath='{..image}' \
-            | tr ' ' '\\n' | sort -u | grep -v '^$' > ${imageListFile}
+    withEnv([
+        "SECURITY_NAMESPACE=${namespace}",
+        "SECURITY_KUBECONFIG=${kubeconfigPath}",
+        "SECURITY_REPORT_DIR=${reportDir}",
+        "SECURITY_IMAGE_LIST=${imageListFile}"
+    ]) {
+        sh '''
+            set -e
+            mkdir -p "${SECURITY_REPORT_DIR}"
+            kubectl --kubeconfig="${SECURITY_KUBECONFIG}" get pods -n "${SECURITY_NAMESPACE}" -o jsonpath='{..image}' \
+                | tr ' ' '\n' | sort -u | grep -v '^$' > "${SECURITY_IMAGE_LIST}"
 
-        if [ ! -s ${imageListFile} ]; then
-            echo "No images found in ${namespace} namespace." >&2
-            exit 1
-        fi
-    """
+            if [ ! -s "${SECURITY_IMAGE_LIST}" ]; then
+                echo "No images found in ${SECURITY_NAMESPACE} namespace." >&2
+                exit 1
+            fi
+        '''
+    }
     return imageListFile
 }
 
