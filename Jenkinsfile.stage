@@ -75,6 +75,42 @@ pipeline {
             }
         }
 
+        stage('Deploy SonarQube') {
+            steps {
+                unstash 'workspace'
+                withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIAL}", variable: 'KCFG')]) {
+                    script {
+                        echo "Deploying SonarQube to Kubernetes..."
+                        def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
+                        def namespaces = commonVars.getNamespaces()
+                        
+                        sh """
+                            chmod +x jenkins/scripts/deploy-sonarqube.sh
+                            jenkins/scripts/deploy-sonarqube.sh "${namespaces.staging}" "\${KCFG}"
+                        """
+                        
+                        // Get SonarQube service URL and set it as environment variable
+                        def sonarUrl = sh(
+                            script: """
+                                # Try to get LoadBalancer IP first
+                                IP=\$(kubectl --kubeconfig=\${KCFG} get svc sonarqube -n ${namespaces.staging} -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+                                if [ -n "\$IP" ]; then
+                                    echo "http://\${IP}:9000"
+                                else
+                                    # Fallback to service DNS
+                                    echo "http://sonarqube.${namespaces.staging}.svc.cluster.local:9000"
+                                fi
+                            """,
+                            returnStdout: true
+                        ).trim()
+                        
+                        env.SONAR_HOST_URL = sonarUrl
+                        echo "SonarQube URL configured: ${env.SONAR_HOST_URL}"
+                    }
+                }
+            }
+        }
+
         stage('Build & Test') {
             steps {
                 script {

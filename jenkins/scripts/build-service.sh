@@ -33,15 +33,55 @@ if [ -f "${SERVICE_NAME}/sonar-project.properties" ]; then
     if [ -z "${SONAR_TOKEN}" ]; then
         echo "⚠ Warning: SONAR_TOKEN not set, skipping SonarQube analysis"
     else
-        mvn sonar:sonar \
+        SONAR_PROJECT_KEY="ecommerce-microservice-backend:${SERVICE_NAME}"
+        # SONAR_HOST_URL can be set via environment variable
+        # Default: Kubernetes service URL (if deployed in K8s) or localhost (for local dev)
+        SONAR_HOST="${SONAR_HOST_URL:-http://sonarqube.default.svc.cluster.local:9000}"
+        
+        # Run SonarQube analysis
+        echo "Running SonarQube analysis..."
+        if ! mvn sonar:sonar \
             -pl "${SERVICE_NAME}" \
             -am \
-            -Dsonar.projectKey="ecommerce-microservice-backend:${SERVICE_NAME}" \
-            -Dsonar.host.url="${SONAR_HOST_URL:-http://localhost:9000}" \
+            -Dsonar.projectKey="${SONAR_PROJECT_KEY}" \
+            -Dsonar.host.url="${SONAR_HOST}" \
             -Dsonar.login="${SONAR_TOKEN}" \
-            -DskipTests || {
-            echo "⚠ Warning: SonarQube analysis failed, but continuing build..."
-        }
+            -DskipTests; then
+            echo "✗ SonarQube analysis failed"
+            exit 1
+        fi
+        
+        echo "✓ SonarQube analysis completed"
+        
+        # Check Quality Gate
+        echo ""
+        echo "Step 2.6: Checking SonarQube Quality Gate..."
+        if [ -f "jenkins/scripts/check-sonarqube-quality-gate.sh" ]; then
+            chmod +x jenkins/scripts/check-sonarqube-quality-gate.sh
+            
+            # Check if Quality Gate enforcement is enabled (default: true)
+            ENFORCE_QUALITY_GATE="${SONAR_ENFORCE_QUALITY_GATE:-true}"
+            
+            if [ "$ENFORCE_QUALITY_GATE" = "true" ]; then
+                jenkins/scripts/check-sonarqube-quality-gate.sh \
+                    "${SONAR_PROJECT_KEY}" \
+                    "${SONAR_HOST}" \
+                    "${SONAR_TOKEN}" \
+                    60 || {
+                    echo ""
+                    echo "✗ Build failed: Quality Gate did not pass"
+                    echo "Please fix the quality issues and try again."
+                    echo "View details in SonarQube: ${SONAR_HOST}/dashboard?id=${SONAR_PROJECT_KEY}"
+                    exit 1
+                }
+                echo "✓ Quality Gate PASSED"
+            else
+                echo "⚠ Quality Gate enforcement is disabled (SONAR_ENFORCE_QUALITY_GATE=false)"
+                echo "⚠ Continuing build without Quality Gate check"
+            fi
+        else
+            echo "⚠ Warning: check-sonarqube-quality-gate.sh not found, skipping Quality Gate check"
+        fi
     fi
 else
     echo "⚠ Warning: sonar-project.properties not found for ${SERVICE_NAME}, skipping SonarQube analysis"
@@ -59,5 +99,28 @@ docker build -f "${SERVICE_NAME}/Dockerfile" \
     .
 
 echo "✓ Successfully built ${SERVICE_NAME}:${IMAGE_TAG}"
+echo ""
+
+# Scan Docker image with Trivy
+echo "Step 4.5: Scanning Docker image for vulnerabilities with Trivy..."
+if [ -f "jenkins/scripts/scan-image-trivy.sh" ]; then
+    chmod +x jenkins/scripts/scan-image-trivy.sh
+    
+    # Get severity threshold from environment or use default
+    TRIVY_SEVERITY="${TRIVY_SEVERITY_THRESHOLD:-CRITICAL,HIGH}"
+    TRIVY_EXIT_ON_FAILURE="${TRIVY_EXIT_ON_FAILURE:-true}"
+    
+    jenkins/scripts/scan-image-trivy.sh \
+        "${REGISTRY}/${SERVICE_NAME}:${IMAGE_TAG}" \
+        "${TRIVY_SEVERITY}" \
+        "${TRIVY_EXIT_ON_FAILURE}" \
+        "json" || {
+        echo "✗ Trivy scan failed for ${SERVICE_NAME}"
+        exit 1
+    }
+else
+    echo "⚠ Warning: scan-image-trivy.sh not found, skipping vulnerability scan"
+fi
+
 echo ""
 

@@ -1,0 +1,258 @@
+# SonarQube Deployment for CI/CD
+# This deployment makes SonarQube available to Jenkins and other CI/CD tools
+
+---
+# PostgreSQL Database for SonarQube
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sonarqube-db-pvc
+  namespace: default
+  labels:
+    app: sonarqube-db
+    component: database
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 10Gi
+  storageClassName: default  # Adjust based on your cluster
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sonarqube-db
+  namespace: default
+  labels:
+    app: sonarqube-db
+    component: database
+spec:
+  selector:
+    app: sonarqube-db
+  ports:
+    - port: 5432
+      targetPort: 5432
+      name: postgres
+  type: ClusterIP
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sonarqube-db
+  namespace: default
+  labels:
+    app: sonarqube-db
+    component: database
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sonarqube-db
+  template:
+    metadata:
+      labels:
+        app: sonarqube-db
+        component: database
+    spec:
+      containers:
+        - name: postgres
+          image: postgres:15-alpine
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 5432
+              name: postgres
+          env:
+            - name: POSTGRES_USER
+              value: sonar
+            - name: POSTGRES_PASSWORD
+              value: sonar
+            - name: POSTGRES_DB
+              value: sonar
+            - name: PGDATA
+              value: /var/lib/postgresql/data/pgdata
+          volumeMounts:
+            - name: postgres-data
+              mountPath: /var/lib/postgresql/data
+          resources:
+            requests:
+              memory: "256Mi"
+              cpu: "250m"
+            limits:
+              memory: "512Mi"
+              cpu: "500m"
+          readinessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U sonar
+            initialDelaySeconds: 10
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            exec:
+              command:
+                - /bin/sh
+                - -c
+                - pg_isready -U sonar
+            initialDelaySeconds: 30
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: postgres-data
+          persistentVolumeClaim:
+            claimName: sonarqube-db-pvc
+---
+# SonarQube Server
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sonarqube-data-pvc
+  namespace: default
+  labels:
+    app: sonarqube
+    component: code-analysis
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 20Gi
+  storageClassName: default  # Adjust based on your cluster
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sonarqube-extensions-pvc
+  namespace: default
+  labels:
+    app: sonarqube
+    component: code-analysis
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: default  # Adjust based on your cluster
+---
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: sonarqube-logs-pvc
+  namespace: default
+  labels:
+    app: sonarqube
+    component: code-analysis
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 5Gi
+  storageClassName: default  # Adjust based on your cluster
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: sonarqube
+  namespace: default
+  labels:
+    app: sonarqube
+    component: code-analysis
+spec:
+  selector:
+    app: sonarqube
+  ports:
+    - port: 9000
+      targetPort: 9000
+      name: http
+      # For LoadBalancer (Azure/GCP/AWS), uncomment the next line
+      # protocol: TCP
+  type: LoadBalancer  # Use LoadBalancer for external access (Azure/GCP/AWS)
+  # Alternative: Use NodePort for on-prem or if LoadBalancer is not available
+  # type: NodePort
+  # ports:
+  #   - port: 9000
+  #     targetPort: 9000
+  #     nodePort: 30900  # Choose a port between 30000-32767
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: sonarqube
+  namespace: default
+  labels:
+    app: sonarqube
+    component: code-analysis
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: sonarqube
+  template:
+    metadata:
+      labels:
+        app: sonarqube
+        component: code-analysis
+    spec:
+      containers:
+        - name: sonarqube
+          image: sonarqube:community
+          imagePullPolicy: IfNotPresent
+          ports:
+            - containerPort: 9000
+              name: http
+          env:
+            - name: SONAR_JDBC_URL
+              value: jdbc:postgresql://sonarqube-db:5432/sonar
+            - name: SONAR_JDBC_USERNAME
+              value: sonar
+            - name: SONAR_JDBC_PASSWORD
+              value: sonar
+            - name: SONAR_ES_BOOTSTRAP_CHECKS_DISABLE
+              value: "true"
+          volumeMounts:
+            - name: sonarqube-data
+              mountPath: /opt/sonarqube/data
+            - name: sonarqube-extensions
+              mountPath: /opt/sonarqube/extensions
+            - name: sonarqube-logs
+              mountPath: /opt/sonarqube/logs
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "4Gi"
+              cpu: "2000m"
+          readinessProbe:
+            httpGet:
+              path: /api/system/status
+              port: 9000
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 6
+          livenessProbe:
+            httpGet:
+              path: /api/system/status
+              port: 9000
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: sonarqube-data
+          persistentVolumeClaim:
+            claimName: sonarqube-data-pvc
+        - name: sonarqube-extensions
+          persistentVolumeClaim:
+            claimName: sonarqube-extensions-pvc
+        - name: sonarqube-logs
+          persistentVolumeClaim:
+            claimName: sonarqube-logs-pvc
+
