@@ -1,5 +1,7 @@
 #!/usr/bin/env groovy
 
+import groovy.json.JsonOutput
+
 /**
  * Shared functions for Jenkins pipelines
  */
@@ -167,7 +169,7 @@ def applyConfigMap(environment, namespace) {
 
 def deployService(serviceConfig, environment, namespace, registry, imageTag) {
     def serviceName = serviceConfig.name
-    def serviceConfigJson = groovy.json.JsonOutput.toJson(serviceConfig)
+    def serviceConfigJson = JsonOutput.toJson(serviceConfig)
     
     echo "Deploying ${serviceName} to ${environment}..."
     
@@ -269,19 +271,31 @@ def publishAllTestResults(changedServices) {
     }
 }
 
+def notifyStart(environment, services) {
+    def summary = "🚀 ${environment.toUpperCase()} pipeline started - ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+    def details = "Servicios a construir/desplegar: ${services ?: 'N/A'}"
+    sendNotification('info', summary, details, services, false)
+}
+
 def notifySuccess(environment, services) {
-    echo "========================================="
-    echo "✓ ${environment.toUpperCase()} pipeline completed successfully"
-    echo "Services: ${services}"
-    echo "========================================="
+    def summary = "✅ ${environment.toUpperCase()} pipeline succeeded - ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+    def details = "Servicios construidos/desplegados: ${services ?: 'N/A'}"
+    sendNotification('info', summary, details, services, false)
+}
+
+def notifyWarning(environment, services) {
+    def summary = "⚠ ${environment.toUpperCase()} pipeline finalizó con advertencias - ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+    def details = "Revisar la etapa: ${env.STAGE_NAME ?: 'N/A'} | Servicios: ${services ?: 'N/A'}"
+    sendNotification('warning', summary, details, services, true)
 }
 
 def notifyFailure(environment, services) {
-    echo "========================================="
-    echo "✗ ${environment.toUpperCase()} pipeline failed"
-    echo "Failed services: ${services}"
-    echo "Check logs for details"
-    echo "========================================="
+    def summary = "❌ ${environment.toUpperCase()} pipeline failed - ${env.JOB_NAME} #${env.BUILD_NUMBER}"
+    def details = """Etapa: ${env.STAGE_NAME ?: 'N/A'}
+Servicios afectados: ${services ?: 'N/A'}
+Branch: ${env.GIT_BRANCH}
+Commit: ${env.GIT_COMMIT_SHORT}"""
+    sendNotification('error', summary, details, services, true)
 }
 
 def runSonarAnalyses(changedServices) {
@@ -335,6 +349,114 @@ def cleanSpace() {
         rm -rf /var/lib/jenkins/.sonar/cache/*
         find /var/lib/jenkins/.m2/repository -type f -mtime +14 -delete
     """
+}
+
+def sendNotification(severity, summary, details, services, includeMentions = false) {
+    echo "========================================="
+    echo summary
+    if (details) {
+        echo details
+    }
+    echo "========================================="
+
+    def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
+    def notificationConfig = commonVars.getNotificationConfig()
+    if (!notificationConfig?.enabled?.toBoolean()) {
+        echo "Notifications are disabled. Skipping external alert."
+        return
+    }
+
+    def logUrl = env.BUILD_URL ? "${env.BUILD_URL}console" : ''
+    def pipelineUrl = env.RUN_DISPLAY_URL ?: env.BUILD_URL ?: ''
+    def mentions = includeMentions ? collectOwnerMentions(services) : [slack: []]
+
+    switch(notificationConfig.channel) {
+        case 'slack':
+            sendSlackNotification(notificationConfig.slack, severity, summary, details, services, logUrl, pipelineUrl, mentions.slack)
+            break
+        default:
+            echo "Unknown notification channel '${notificationConfig.channel}'. Notification skipped."
+    }
+}
+
+def sendSlackNotification(slackConfig, severity, summary, details, services, logUrl, pipelineUrl, mentions = []) {
+    if (!slackConfig?.credentialId) {
+        echo "Slack credential not configured. Skipping Slack notification."
+        return
+    }
+
+    def colorPalette = [
+        info: '#2EB67D',
+        warning: '#ECB22E',
+        error: '#E01E5A'
+    ]
+    def color = colorPalette[(severity ?: 'info') as String] ?: '#439FE0'
+    def mentionText = mentions?.findAll { it }?.unique()?.join(' ') ?: ''
+    def text = mentionText ? "${mentionText} ${summary}" : summary
+
+    def fields = [
+        [title: 'Pipeline', value: "${env.JOB_NAME} #${env.BUILD_NUMBER}", short: true],
+        [title: 'Environment', value: env.TARGET_ENVIRONMENT ?: 'N/A', short: true]
+    ]
+
+    if (env.STAGE_NAME) {
+        fields << [title: 'Stage', value: env.STAGE_NAME, short: true]
+    }
+    if (services) {
+        fields << [title: 'Servicios', value: services, short: false]
+    }
+    if (details) {
+        fields << [title: 'Detalles', value: details, short: false]
+    }
+    if (logUrl) {
+        fields << [title: 'Logs', value: "<${logUrl}|Abrir consola>", short: false]
+    }
+
+    def payload = [
+        text: text,
+        username: slackConfig.username ?: 'Jenkins CI',
+        icon_emoji: slackConfig.iconEmoji ?: ':rocket:',
+        attachments: [[
+            color: color,
+            fields: fields
+        ]]
+    ]
+
+    if (slackConfig.channel) {
+        payload.channel = slackConfig.channel
+    }
+
+    def payloadJson = JsonOutput.toJson(payload)
+    writeFile file: 'slack_payload.json', text: payloadJson
+
+    withCredentials([string(credentialsId: slackConfig.credentialId, variable: 'SLACK_WEBHOOK_URL')]) {
+        sh """
+            curl -s -X POST -H 'Content-type: application/json' --data @slack_payload.json "$SLACK_WEBHOOK_URL" >/dev/null
+        """
+    }
+
+    sh 'rm -f slack_payload.json'
+}
+
+def collectOwnerMentions(changedServices) {
+    def mentions = [slack: []]
+    if (!changedServices?.trim()) {
+        return mentions
+    }
+
+    def serviceList = changedServices.split(',').collect { it.trim() }.findAll { it }
+    def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
+    def ownersMap = commonVars.getServiceCodeOwners()
+
+    serviceList.each { service ->
+        def owner = ownersMap.get(service)
+        if (owner?.slack) {
+            mentions.slack << owner.slack
+        }
+    }
+
+    mentions.slack = mentions.slack.unique()
+    return mentions
 }
 
 return this

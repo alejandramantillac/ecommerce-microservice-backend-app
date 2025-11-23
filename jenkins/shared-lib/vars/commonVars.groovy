@@ -273,4 +273,50 @@ def getTrivyReportFormat() {
     return 'json'
 }
 
+def getNotificationConfig() {
+    return [
+        enabled: 'true',
+        channel: 'slack',
+        slack: [
+            credentialId: 'slack-hook-url',
+            channel: 'jenkins',
+            username: 'Jenkins CI',
+            iconEmoji: ':rocket:'
+        ]
+    ]
+}
+
+def getServiceCodeOwners() {
+    def defaultSlackMention = '@María Alejandra Mantilla'
+
+    return [
+        'user-service': [
+            slack: '@Andrés Parra',
+        ],
+        'product-service': [
+            slack: defaultSlackMention,
+        ],
+        'favourite-service': [
+            slack: defaultSlackMention,
+        ],
+        'proxy-client': [
+            slack: defaultSlackMention,
+        ],
+        'service-discovery': [
+            slack: defaultSlackMention,
+        ],
+        'api-gateway': [
+            slack: defaultSlackMention,
+        ],
+        'zipkin': [
+            slack: defaultSlackMention,
+        ]
+    ]
+}
+
+def getCodeOwner(serviceName) {
+    def owners = getServiceCodeOwners()
+    return owners.get(serviceName)
+}
+
 return this

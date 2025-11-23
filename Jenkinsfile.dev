@@ -41,6 +41,7 @@ pipeline {
                     
                     def services = commonVars.getServicesList()
                     env.CHANGED_SERVICES = commonFunctions.detectChangedServices(services)
+                    commonFunctions.notifyStart(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
                 }
                 stash name: 'workspace', includes: '**/*'
             }
@@ -123,6 +124,12 @@ pipeline {
                 commonFunctions.notifySuccess(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
             }
             cleanWs()
+        }
+        unstable {
+            script {
+                def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                commonFunctions.notifyWarning(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
+            }
         }
         failure {
             script {
