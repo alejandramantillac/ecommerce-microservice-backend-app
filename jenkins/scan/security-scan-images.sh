@@ -16,7 +16,24 @@ if [[ -z "$IMAGE_LIST_FILE" || ! -f "$IMAGE_LIST_FILE" ]]; then
 fi
 
 mkdir -p "${REPORT_DIR}"
+REPORT_DIR_ABS="$(cd "${REPORT_DIR}" && pwd)"
 echo "service,image,critical,high,medium,low,unknown" > "${SUMMARY_CSV}"
+
+run_trivy() {
+    local image="$1"
+    local output="$2"
+    local filename
+    filename="$(basename "${output}")"
+    docker run --rm \
+        -v /var/run/docker.sock:/var/run/docker.sock \
+        -v "${REPORT_DIR_ABS}:/reports" \
+        aquasec/trivy:latest image \
+        --severity "${TRIVY_SEVERITY}" \
+        --format json \
+        --output "/reports/${filename}" \
+        --exit-code 0 \
+        "${image}" >/dev/null
+}
 
 while IFS= read -r image || [[ -n "$image" ]]; do
     image="$(echo "$image" | xargs)"
@@ -30,12 +47,7 @@ while IFS= read -r image || [[ -n "$image" ]]; do
 
     echo "Scanning image: ${image}"
     set +e
-    trivy image \
-        --severity "${TRIVY_SEVERITY}" \
-        --format json \
-        --output "${report_path}" \
-        --exit-code 0 \
-        "${image}" >/dev/null
+    run_trivy "${image}" "${report_path}"
     scan_status=$?
     set -e
 

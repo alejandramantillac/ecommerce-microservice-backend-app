@@ -84,7 +84,7 @@ pipeline {
         stage('Evaluate Findings & Set Result') {
             steps {
                 script {
-                    def summary = readJSON file: env.SECURITY_SUMMARY_JSON
+                    def summary = new groovy.json.JsonSlurper().parseText(readFile(env.SECURITY_SUMMARY_JSON))
                     def totals = summary.totals ?: [:]
                     def services = summary.services ?: [:]
 
