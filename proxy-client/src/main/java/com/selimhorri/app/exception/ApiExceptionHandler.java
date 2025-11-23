@@ -16,6 +16,7 @@ import com.selimhorri.app.exception.wrapper.CredentialNotFoundException;
 import com.selimhorri.app.exception.wrapper.FavouriteNotFoundException;
 import com.selimhorri.app.exception.wrapper.UserObjectNotFoundException;
 import com.selimhorri.app.exception.wrapper.VerificationTokenNotFoundException;
+import com.selimhorri.app.feature.exception.FeatureDisabledException;
 
 import feign.FeignException;
 import feign.FeignException.FeignClientException;
@@ -84,6 +85,23 @@ public class ApiExceptionHandler {
 					.timestamp(ZonedDateTime
 							.now(ZoneId.systemDefault()))
 					.build(), badRequest);
+	}
+	
+	@ExceptionHandler(value = {
+		FeatureDisabledException.class
+	})
+	public ResponseEntity<ExceptionMsg> handleFeatureDisabledException(final FeatureDisabledException e) {
+		
+		log.info("**ApiExceptionHandler controller, handle feature disabled exception*\n");
+		final var serviceUnavailable = HttpStatus.SERVICE_UNAVAILABLE;
+		
+		return new ResponseEntity<>(
+				ExceptionMsg.builder()
+					.msg(e.getMessage())
+					.httpStatus(serviceUnavailable)
+					.timestamp(ZonedDateTime
+							.now(ZoneId.systemDefault()))
+					.build(), serviceUnavailable);
 	}
 	
 	

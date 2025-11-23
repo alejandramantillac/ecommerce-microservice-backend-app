@@ -55,6 +55,16 @@ management:
     health:
       show-details: always
 
+# Feature Toggle Configuration
+# Features can be enabled/disabled dynamically through Spring Cloud Config
+# Use @RefreshScope to update without restart: POST /actuator/refresh
+feature:
+  toggle:
+    new-payment-method: ${FEATURE_TOGGLE_NEW_PAYMENT_METHOD:true}
+    advanced-search: ${FEATURE_TOGGLE_ADVANCED_SEARCH:false}
+    recommendation-engine: ${FEATURE_TOGGLE_RECOMMENDATION_ENGINE:false}
+    bulk-operations: ${FEATURE_TOGGLE_BULK_OPERATIONS:true}
+
 
 
 

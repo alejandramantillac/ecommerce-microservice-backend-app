@@ -13,6 +13,7 @@ import org.springframework.web.bind.annotation.RestController;
 import com.selimhorri.app.business.product.model.ProductDto;
 import com.selimhorri.app.business.product.model.response.ProductProductServiceCollectionDtoResponse;
 import com.selimhorri.app.business.product.service.ProductClientService;
+import com.selimhorri.app.feature.FeatureToggle;
 
 import lombok.RequiredArgsConstructor;
 
@@ -24,6 +25,7 @@ public class ProductController {
 	private final ProductClientService productClientService;
 	
 	@GetMapping
+	@FeatureToggle(name = "advanced-search", defaultValue = false, message = "Advanced search feature is currently disabled")
 	public ResponseEntity<ProductProductServiceCollectionDtoResponse> findAll() {
 		return ResponseEntity.ok(this.productClientService.findAll().getBody());
 	}

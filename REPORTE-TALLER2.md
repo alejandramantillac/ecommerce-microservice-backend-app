@@ -207,6 +207,38 @@ La arquitectura implementa múltiples patrones de diseño que trabajan en conjun
 
 **Documentación detallada**: Ver `docs/DESIGN_PATTERNS.md` para información completa de todos los patrones.
 
+#### 2.2.9 Feature Toggle Pattern
+
+**Implementación**: Spring AOP + Spring Cloud Config en `proxy-client`
+
+**Estado**: ✅ **Completamente implementado y funcional**
+
+**Descripción**: Permite habilitar o deshabilitar funcionalidades de forma dinámica sin necesidad de redeployar la aplicación, facilitando testing A/B, rollouts graduales y kill switches.
+
+**Implementación**: 
+- **Anotación `@FeatureToggle`**: Marca métodos/endpoints controlados por feature toggle
+- **FeatureToggleService**: Gestiona el estado de los features con soporte para configuración dinámica mediante `@RefreshScope`
+- **FeatureToggleAspect**: Intercepta métodos anotados usando Spring AOP
+- **FeatureToggleController**: Endpoint de administración (`/api/admin/features`) para gestionar features dinámicamente
+- **Integración con Spring Cloud Config**: Los features pueden configurarse en el Config Server y actualizarse sin reiniciar
+
+**Features configurados**:
+- `new-payment-method` - Controla el endpoint de creación de pagos (habilitado por defecto)
+- `advanced-search` - Controla búsqueda avanzada de productos (deshabilitado por defecto)
+- `recommendation-engine` - Controla motor de recomendaciones (deshabilitado por defecto)
+- `bulk-operations` - Controla operaciones masivas (habilitado por defecto)
+
+**Endpoints con Feature Toggle aplicado**:
+- `POST /api/payments` - Controlado por `new-payment-method`
+- `GET /api/products` - Controlado por `advanced-search`
+- `GET /api/favourites` - Controlado por `recommendation-engine`
+
+**Funcionamiento**: Cuando un endpoint anotado con `@FeatureToggle` es invocado, el aspect verifica si el feature está habilitado. Si está deshabilitado, se lanza `FeatureDisabledException` que retorna HTTP 503 (Service Unavailable).
+
+**Beneficios**: Permite despliegue continuo sin riesgo, control granular de features, testing en producción, rollback rápido, y configuración dinámica sin reiniciar la aplicación.
+
+**Documentación detallada**: Ver `docs/DESIGN_PATTERNS.md` para información completa de todos los patrones.
+
 ### 2.3 Gestión de Configuración por Ambiente
 
 Uno de los aspectos críticos del sistema es la gestión diferenciada de configuraciones para cada ambiente. Esto se logra mediante:

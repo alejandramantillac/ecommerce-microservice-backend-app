@@ -14,6 +14,7 @@ import com.selimhorri.app.business.favourite.model.FavouriteDto;
 import com.selimhorri.app.business.favourite.model.FavouriteId;
 import com.selimhorri.app.business.favourite.model.response.FavouriteFavouriteServiceCollectionDtoResponse;
 import com.selimhorri.app.business.favourite.service.FavouriteClientService;
+import com.selimhorri.app.feature.FeatureToggle;
 
 import lombok.RequiredArgsConstructor;
 
@@ -25,6 +26,7 @@ public class FavouriteController {
 	private final FavouriteClientService favouriteClientService;
 	
 	@GetMapping
+	@FeatureToggle(name = "recommendation-engine", defaultValue = false, message = "Recommendation engine feature is currently disabled")
 	public ResponseEntity<FavouriteFavouriteServiceCollectionDtoResponse> findAll() {
 		return ResponseEntity.ok(this.favouriteClientService.findAll().getBody());
 	}

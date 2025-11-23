@@ -544,6 +544,162 @@ public class UserClientServiceFallback implements UserClientService {
 
 ---
 
+## 9. Feature Toggle Pattern
+
+### Descripción
+El patrón Feature Toggle (también conocido como Feature Flag) permite habilitar o deshabilitar funcionalidades de forma dinámica sin necesidad de redeployar la aplicación. Esto es especialmente útil para testing A/B, rollouts graduales, y kill switches para features problemáticas.
+
+### Implementación
+**Tecnología**: Spring AOP + Spring Cloud Config
+
+**Dependencias requeridas**:
+- `spring-boot-starter-aop` (en `proxy-client/pom.xml`)
+- `spring-cloud-starter-config` (para integración con Config Server)
+- Spring Boot Actuator (heredado del pom.xml padre)
+
+**Ubicación principal**: `proxy-client/` - Servicio que expone endpoints al cliente
+
+**Nota importante**: La aplicación usa `context-path: /app` (configurado en `application.yml`), por lo que todos los endpoints tienen el prefijo `/app`. Por ejemplo: `/app/api/payments` en lugar de `/api/payments`.
+
+**Componentes implementados**:
+1. **Anotación `@FeatureToggle`**: Marca métodos/endpoints controlados por feature toggle
+2. **FeatureToggleService**: Gestiona el estado de los features usando reflexión para mapear propiedades dinámicamente
+3. **FeatureToggleAspect**: Intercepta métodos anotados usando AOP (@Around)
+4. **FeatureToggleController**: Endpoint de administración para gestionar features dinámicamente
+5. **FeatureToggleProperties**: Clase de configuración que mapea propiedades YAML a campos Java
+6. **FeatureDisabledException**: Excepción personalizada lanzada cuando un feature está deshabilitado
+
+**Configuración**: `proxy-client/src/main/resources/application.yml`
+```yaml
+feature:
+  toggle:
+    new-payment-method: ${FEATURE_TOGGLE_NEW_PAYMENT_METHOD:true}
+    advanced-search: ${FEATURE_TOGGLE_ADVANCED_SEARCH:false}
+    recommendation-engine: ${FEATURE_TOGGLE_RECOMMENDATION_ENGINE:false}
+    bulk-operations: ${FEATURE_TOGGLE_BULK_OPERATIONS:true}
+```
+
+**Ejemplo de uso en PaymentController**:
+```java
+@PostMapping
+@FeatureToggle(
+    name = "new-payment-method", 
+    defaultValue = true,
+    message = "New payment method feature is currently disabled"
+)
+public ResponseEntity<PaymentDto> save(@RequestBody final PaymentDto paymentDto) {
+    return ResponseEntity.ok(this.paymentClientService.save(paymentDto).getBody());
+}
+```
+
+**Ejemplo de uso en ProductController**:
+```java
+@GetMapping
+@FeatureToggle(
+    name = "advanced-search", 
+    defaultValue = false,
+    message = "Advanced search feature is currently disabled"
+)
+public ResponseEntity<ProductProductServiceCollectionDtoResponse> findAll() {
+    return ResponseEntity.ok(this.productClientService.findAll().getBody());
+}
+```
+
+**Endpoints con Feature Toggle aplicado** (con context-path `/app`):
+- `POST /app/api/payments` - Controlado por `new-payment-method` (método `save()`)
+- `GET /app/api/products` - Controlado por `advanced-search` (método `findAll()`)
+- `GET /app/api/favourites` - Controlado por `recommendation-engine` (método `findAll()`)
+
+**Endpoints de administración**: `/app/api/admin/features`
+- `GET /app/api/admin/features` - Listar todos los features
+- `GET /app/api/admin/features/{featureName}` - Estado de un feature específico
+- `POST /app/api/admin/features/{featureName}/enable` - Habilitar feature
+- `POST /app/api/admin/features/{featureName}/disable` - Deshabilitar feature
+- `POST /app/api/admin/features/cache/clear` - Limpiar caché
+
+**Nota de seguridad**: Los endpoints de administración requieren rol `ADMIN` (configurado en `SecurityConfig`)
+
+### Propósito
+- **Control dinámico**: Habilitar/deshabilitar features sin redeploy
+- **Testing A/B**: Probar nuevas funcionalidades con un subconjunto de usuarios
+- **Rollout gradual**: Activar features progresivamente
+- **Kill switch**: Desactivar rápidamente features problemáticas
+- **Configuración por ambiente**: Diferentes features activos en dev/staging/prod
+
+### Beneficios
+✅ **Despliegue continuo sin riesgo**: Features pueden desplegarse deshabilitados  
+✅ **Control granular**: Activar/desactivar features individuales  
+✅ **Testing en producción**: Probar features con usuarios reales de forma controlada  
+✅ **Rollback rápido**: Desactivar features problemáticas sin redeploy  
+✅ **Configuración dinámica**: Cambios sin reiniciar la aplicación (con @RefreshScope)  
+
+### Flujo de Feature Toggle
+```
+1. Request → Controller Method
+2. Aspect intercepta método anotado con @FeatureToggle
+3. FeatureToggleService verifica estado del feature
+   ├─ Si habilitado → Ejecuta método normalmente
+   └─ Si deshabilitado → Lanza FeatureDisabledException
+4. ApiExceptionHandler captura excepción
+5. Retorna HTTP 503 (Service Unavailable) con mensaje
+```
+
+### Configuración Dinámica
+El servicio usa `@RefreshScope` en `FeatureToggleService` y `FeatureToggleProperties` para permitir actualizaciones dinámicas sin reiniciar la aplicación.
+
+**Métodos de actualización**:
+1. **Via endpoints de administración** (implementado y funcional):
+   ```bash
+   POST /app/api/admin/features/new-payment-method/disable
+   POST /app/api/admin/features/new-payment-method/enable
+   POST /app/api/admin/features/cache/clear
+   ```
+   Estos endpoints actualizan el cache en memoria inmediatamente.
+
+2. **Via Spring Cloud Config** (preparado pero requiere configuración adicional):
+   - El servicio tiene un listener `handleEnvironmentChange()` que escucha `EnvironmentChangeEvent`
+   - Cuando detecta cambios en propiedades `feature.toggle.*`, limpia el cache automáticamente
+   - Requiere que Spring Cloud Config esté configurado y que se dispare el evento de cambio
+   - Los cambios se aplican sin reiniciar gracias a `@RefreshScope`
+
+**Implementación del listener**:
+```java
+@EventListener
+public void handleEnvironmentChange(EnvironmentChangeEvent event) {
+    boolean featureToggleChanged = event.getKeys().stream()
+        .anyMatch(key -> key.startsWith("feature.toggle."));
+    if (featureToggleChanged) {
+        clearCache();
+    }
+}
+```
+
+### Ubicación de Archivos
+- **Anotación**: `proxy-client/src/main/java/com/selimhorri/app/feature/FeatureToggle.java`
+- **Servicio**: `proxy-client/src/main/java/com/selimhorri/app/feature/service/FeatureToggleService.java`
+- **Aspect**: `proxy-client/src/main/java/com/selimhorri/app/feature/aspect/FeatureToggleAspect.java`
+- **Controller**: `proxy-client/src/main/java/com/selimhorri/app/feature/controller/FeatureToggleController.java`
+- **Properties**: `proxy-client/src/main/java/com/selimhorri/app/feature/config/FeatureToggleProperties.java`
+- **Excepción**: `proxy-client/src/main/java/com/selimhorri/app/feature/exception/FeatureDisabledException.java`
+- **Configuración**: `proxy-client/src/main/resources/application.yml`
+- **Dependencia AOP**: `proxy-client/pom.xml` (spring-boot-starter-aop)
+- **Aplicación principal**: `proxy-client/src/main/java/com/selimhorri/app/ProxyClientApplication.java`
+  - Anotaciones: `@EnableAspectJAutoProxy`, `@EnableConfigurationProperties(FeatureToggleProperties.class)`, `@RefreshScope`
+- **Manejo de excepciones**: `proxy-client/src/main/java/com/selimhorri/app/exception/ApiExceptionHandler.java`
+  - Método: `handleFeatureDisabledException()` - Retorna HTTP 503 (Service Unavailable)
+- **Seguridad**: `proxy-client/src/main/java/com/selimhorri/app/security/SecurityConfig.java`
+  - Endpoints `/app/api/admin/features/**` requieren rol `ADMIN`
+- **Controllers que usan Feature Toggle**:
+  - `proxy-client/src/main/java/com/selimhorri/app/business/payment/controller/PaymentController.java`
+  - `proxy-client/src/main/java/com/selimhorri/app/business/product/controller/ProductController.java`
+  - `proxy-client/src/main/java/com/selimhorri/app/business/favourite/controller/FavouriteController.java`
+- **Tests unitarios**:
+  - `proxy-client/src/test/java/com/selimhorri/app/feature/service/FeatureToggleServiceTest.java` (9 tests)
+  - `proxy-client/src/test/java/com/selimhorri/app/feature/aspect/FeatureToggleAspectTest.java` (5 tests)
+  - Total: 14 tests, todos pasando
+
+---
+
 ## Resumen de Patrones Implementados
 
 | # | Patrón | Estado | Ubicación Principal | Tecnología |
@@ -556,6 +712,7 @@ public class UserClientServiceFallback implements UserClientService {
 | 6 | Feign Client | ✅ Completo | `proxy-client/` | Spring Cloud OpenFeign |
 | 7 | Layered Architecture | ✅ Completo | Todos los servicios | Spring Boot |
 | 8 | Circuit Breaker | ✅ Completo | `proxy-client/` | Resilience4j + Feign |
+| 9 | Feature Toggle | ✅ Completo | `proxy-client/` | Spring AOP + Config |
 
 ---
 
