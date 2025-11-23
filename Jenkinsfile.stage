@@ -68,6 +68,9 @@ pipeline {
                     env.SONAR_HOST_URL = commonVars.getSonarHostUrl()
                     env.SONAR_ORGANIZATION = commonVars.getSonarOrganization()
                     env.SONAR_ENFORCE_QUALITY_GATE = commonVars.getSonarEnforceQualityGate()
+                    env.TRIVY_SEVERITY_THRESHOLD = commonVars.getTrivySeverityThreshold()
+                    env.TRIVY_EXIT_ON_FAILURE = commonVars.getTrivyExitOnFailure()
+                    env.TRIVY_REPORT_FORMAT = commonVars.getTrivyReportFormat()
                     
                     commonFunctions.printDeploymentInfo(env.TARGET_ENVIRONMENT, env.IMAGE_TAG, env.K8S_NAMESPACE)
                     
@@ -91,6 +94,26 @@ pipeline {
                         env.IMAGE_TAG, 
                         env.LATEST_TAG
                     )
+                }
+            }
+        }
+
+        stage('Trivy Scan') {
+            steps {
+                script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    commonFunctions.runTrivyScans(env.CHANGED_SERVICES, env.REGISTRY, env.IMAGE_TAG)
+                }
+            }
+        }
+
+        stage('SonarCloud Analysis') {
+            steps {
+                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
+                    script {
+                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                        commonFunctions.runSonarAnalyses(env.CHANGED_SERVICES)
+                    }
                 }
             }
         }
