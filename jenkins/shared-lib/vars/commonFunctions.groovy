@@ -374,7 +374,8 @@ def generateSecurityDashboard(summaryJsonPath, dashboardOutputPath) {
 }
 
 // Función para escanear las imágenes con Trivy
-def scanImagesWithTrivy(imageListPath, reportDir, summaryCsvPath, summaryJsonPath, severity) {
+def scanImagesWithTrivy(imageListPath, reportDir, summaryCsvPath, summaryJsonPath, severity, statusPath = null) {
+    def finalStatusPath = statusPath ?: "${reportDir}/summary-status.properties"
     sh """
         chmod +x jenkins/scan/security-scan-images.sh
         jenkins/scan/security-scan-images.sh \
@@ -382,8 +383,10 @@ def scanImagesWithTrivy(imageListPath, reportDir, summaryCsvPath, summaryJsonPat
             "${reportDir}" \
             "${summaryCsvPath}" \
             "${summaryJsonPath}" \
-            "${severity}"
+            "${severity}" \
+            "${finalStatusPath}"
     """
+    return finalStatusPath
 }
 
 def runTrivyScans(changedServices, registry, imageTag) {
@@ -409,7 +412,8 @@ def runTrivyScans(changedServices, registry, imageTag) {
         def severity = commonVars.getTrivySeverityThreshold()
 
         // Call the reusable Trivy scan function
-        scanImagesWithTrivy(imageName, reportDir, summaryCsvPath, summaryJsonPath, severity)
+        def statusPath = "${reportDir}/summary-status.properties"
+        scanImagesWithTrivy(imageName, reportDir, summaryCsvPath, summaryJsonPath, severity, statusPath)
     }
 
     archiveArtifacts artifacts: 'trivy-reports/**/*.json', fingerprint: true, allowEmptyArchive: true
