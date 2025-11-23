@@ -71,16 +71,13 @@ pipeline {
 
         stage('Publish Security Reports') {
             steps {
-                publishHTML([
-                    allowMissing: false,
-                    reportDir: "${env.SECURITY_REPORT_DIR}",
-                    reportFiles: 'security-dashboard.html',
-                    reportName: 'Security Vulnerability Dashboard',
-                    keepAll: true,
-                    alwaysLinkToLastBuild: true
-                ])
-
-                archiveArtifacts artifacts: "${env.SECURITY_REPORT_DIR}/**/*", fingerprint: true, allowEmptyArchive: false
+                script {
+                    archiveArtifacts artifacts: "${env.SECURITY_REPORT_DIR}/**/*", fingerprint: true, allowEmptyArchive: false
+                    if (env.BUILD_URL) {
+                        def dashboardUrl = "${env.BUILD_URL}artifact/${env.SECURITY_DASHBOARD}"
+                        echo "Security dashboard available at: ${dashboardUrl}"
+                    }
+                }
             }
         }
 
