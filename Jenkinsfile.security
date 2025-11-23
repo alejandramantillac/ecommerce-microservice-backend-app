@@ -67,11 +67,11 @@ pipeline {
                     sh """
                         set -e
                         mkdir -p ${env.SECURITY_REPORT_DIR}
-                        kubectl --kubeconfig="${env.SECURITY_KUBECONFIG}" get pods -n ${env.K8S_NAMESPACE} -o jsonpath='{..image}' \\
+                        kubectl --kubeconfig="${env.SECURITY_KUBECONFIG}" get pods -n "${env.K8S_NAMESPACE}" -o jsonpath='{..image}' \\
                             | tr ' ' '\\n' | sort -u | grep -v '^$' > "${env.SECURITY_IMAGE_LIST}"
 
                         if [ ! -s "${env.SECURITY_IMAGE_LIST}" ]; then
-                            echo "No images found in ${env.K8S_NAMESPACE} namespace." >&2
+                            echo "No images found in "${env.K8S_NAMESPACE}" namespace." >&2
                             exit 1
                         fi
                     """
