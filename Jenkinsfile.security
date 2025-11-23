@@ -34,7 +34,7 @@ pipeline {
                     env.REGISTRY = commonVars.getRegistry()
                     env.SCAN_SEVERITY = "CRITICAL,HIGH,MEDIUM,LOW"
                     env.CHANGED_SERVICES = 'security-scan'
-                    env.K8S_NAMESPACE = commonVars.getNamespaces().staging
+                    env.K8S_NAMESPACE = commonVars.getNamespaces().prod
 
                     sh "mkdir -p ${env.SECURITY_REPORT_DIR}"
                     commonFunctions.initializePipelineVariables()

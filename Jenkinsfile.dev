@@ -41,7 +41,6 @@ pipeline {
                     
                     def services = commonVars.getServicesList()
                     env.CHANGED_SERVICES = commonFunctions.detectChangedServices(services)
-                    commonFunctions.notifyStart(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
                 }
                 stash name: 'workspace', includes: '**/*'
             }
