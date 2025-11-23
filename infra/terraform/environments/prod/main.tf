@@ -63,7 +63,6 @@ module "aks" {
   vnet_subnet_id       = module.networking.private_subnet_ids[var.aks_subnet_key]
   node_vm_size         = var.aks_node_vm_size
   node_count           = var.aks_node_count
-  enable_auto_scaling  = false
   node_os_disk_size_gb = var.aks_node_os_disk_gb
   max_pods_per_node    = var.aks_max_pods
   network_plugin       = var.aks_network_plugin

@@ -61,5 +61,13 @@ if [ $TEST_EXIT_CODE -eq 0 ]; then
     echo "✓ Performance tests completed successfully"
 fi
 
+# Move artifacts to repo root so Jenkins can archive them
+if [ -f performance-report.html ]; then
+    mv performance-report.html ..
+fi
+if ls performance-data* &>/dev/null; then
+    mv performance-data* ..
+fi
+
 # Move back to root
 cd ..

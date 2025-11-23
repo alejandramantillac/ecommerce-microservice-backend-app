@@ -238,7 +238,7 @@ def runPerformanceTests(namespace, apiGatewayUrl, users = '50', spawnRate = '10'
         jenkins/scripts/performance-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}"
     """
     
-    archiveArtifacts artifacts: 'performance_report.html,performance_data*.csv', 
+    archiveArtifacts artifacts: 'performance-report.html,performance-data*.csv', 
                      fingerprint: true, 
                      allowEmptyArchive: true
 }
