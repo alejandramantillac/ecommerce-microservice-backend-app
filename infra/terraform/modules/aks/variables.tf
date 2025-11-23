@@ -53,12 +53,6 @@ variable "node_max_count" {
   default     = 3
 }
 
-variable "enable_auto_scaling" {
-  description = "Habilitar auto scaling en el node pool."
-  type        = bool
-  default     = false
-}
-
 variable "node_os_disk_size_gb" {
   description = "Tamaño del disco OS."
   type        = number

@@ -30,7 +30,7 @@ echo "Running integration tests..."
 export API_GATEWAY_URL="${API_GATEWAY_URL}"
 
 # Run pytest with integration tests
-pytest integration/ -v -m integration \
+python3 -m pytest integration/ -v -m integration \
     --html=integration-report.html \
     --self-contained-html \
     --json-report \

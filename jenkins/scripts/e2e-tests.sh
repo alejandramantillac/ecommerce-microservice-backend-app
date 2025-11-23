@@ -24,7 +24,7 @@ echo "Running E2E tests..."
 export API_GATEWAY_URL="${API_GATEWAY_URL}"
 
 # Run pytest with E2E tests
-pytest e2e/ -v -m e2e \
+python3 -m pytest e2e/ -v -m e2e \
     --html=e2e-report.html \
     --self-contained-html \
     --json-report \
