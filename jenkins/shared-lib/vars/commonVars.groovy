@@ -331,6 +331,36 @@ def getServicesList() {
             ],
             healthPath: '/_node/pipelines',
             replicas: [dev: 1, staging: 1, prod: 1]
+        ],
+
+        [
+            name: 'kibana',
+            port: 5601,
+            type: 'logging',
+            path: 'kibana',
+            external: true,
+            exposure: [
+                dev: [
+                    type: 'NodePort',
+                    nodePort: 30561
+                ],
+                staging: [
+                    type: 'NodePort',
+                    nodePort: 30561
+                ],
+                prod: [
+                    type: 'LoadBalancer',
+                    nodePort: 30561
+                ]
+            ],
+            resources: [
+                memRequest: '1Gi',
+                memLimit: '2Gi',
+                cpuRequest: '500m',
+                cpuLimit: '1000m'
+            ],
+            healthPath: '/api/status',
+            replicas: [dev: 1, staging: 1, prod: 1]
         ]
     ]
 }
