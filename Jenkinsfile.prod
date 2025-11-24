@@ -16,36 +16,6 @@ pipeline {
     }
     
     stages {
-        stage('Provision Infrastructure (Terraform)') {
-            steps {
-                script {
-                    echo "Provisioning production infrastructure via Terraform..."
-                    withCredentials([
-                        string(credentialsId: 'ARM_CLIENT_ID', variable: 'ARM_CLIENT_ID'),
-                        string(credentialsId: 'ARM_CLIENT_SECRET', variable: 'ARM_CLIENT_SECRET'),
-                        string(credentialsId: 'ARM_SUBSCRIPTION_ID', variable: 'ARM_SUBSCRIPTION_ID'),
-                        string(credentialsId: 'ARM_TENANT_ID', variable: 'ARM_TENANT_ID')
-                    ]) {
-                        sh '''
-                            set -e
-                            cd infra/terraform/environments/prod
-                            terraform init -input=false
-                            terraform apply -input=false -auto-approve -var-file=prod.tfvars
-                            RG_NAME=$(terraform output -raw resource_group_name)
-                            AKS_NAME=$(terraform output -raw aks_cluster_name)
-                            mkdir -p "${WORKSPACE}/.kube"
-                            rm -f "${WORKSPACE}/.kube/prod-config"
-                            az login --service-principal -u "$ARM_CLIENT_ID" -p "$ARM_CLIENT_SECRET" --tenant "$ARM_TENANT_ID" >/dev/null
-                            az aks get-credentials --resource-group "$RG_NAME" --name "$AKS_NAME" --file "${WORKSPACE}/.kube/prod-config" --overwrite-existing
-                        '''
-                    }
-                    env.PROD_KUBE_CONFIG_PATH = "${env.WORKSPACE}/.kube/prod-config"
-                    env.TF_PROD_APPLIED = 'true'
-                    stash name: 'prod-kubeconfig', includes: '.kube/prod-config'
-                }
-            }
-        }
-
         stage('Initialize') {
             steps {
                 deleteDir()
@@ -170,13 +140,44 @@ pipeline {
                 }
             }
         }
+
+        stage('Provision Staging Infrastructure (Terraform)') {
+            steps {
+                script {
+                    echo "Provisioning staging infrastructure via Terraform..."
+                    withCredentials([
+                        string(credentialsId: 'ARM_CLIENT_ID', variable: 'ARM_CLIENT_ID'),
+                        string(credentialsId: 'ARM_CLIENT_SECRET', variable: 'ARM_CLIENT_SECRET'),
+                        string(credentialsId: 'ARM_SUBSCRIPTION_ID', variable: 'ARM_SUBSCRIPTION_ID'),
+                        string(credentialsId: 'ARM_TENANT_ID', variable: 'ARM_TENANT_ID')
+                    ]) {
+                        sh '''
+                            set -e
+                            cd infra/terraform/environments/${K8S_NAMESPACE_STAGING}
+                            terraform version
+                            terraform init -input=false
+                            terraform apply -input=false -auto-approve -var-file=${K8S_NAMESPACE_STAGING}.tfvars
+                            RG_NAME=$(terraform output -raw resource_group_name)
+                            AKS_NAME=$(terraform output -raw aks_cluster_name)
+                            mkdir -p "${WORKSPACE}/.kube"
+                            rm -f "${WORKSPACE}/.kube/${K8S_NAMESPACE_STAGING}-config"
+                            az login --service-principal -u "$ARM_CLIENT_ID" -p "$ARM_CLIENT_SECRET" --tenant "$ARM_TENANT_ID" >/dev/null
+                            az aks get-credentials --resource-group "$RG_NAME" --name "$AKS_NAME" --file "${WORKSPACE}/.kube/${K8S_NAMESPACE_STAGING}-config" --overwrite-existing
+                        '''
+                    }
+                    env.STAGING_KUBE_CONFIG_PATH = "${env.WORKSPACE}/.kube/${K8S_NAMESPACE_STAGING}-config"
+                    env.TF_STAGING_APPLIED = 'true'
+                    stash name: 'kubeconfig', includes: ".kube/${K8S_NAMESPACE_STAGING}-config"
+                }
+            }
+        }
         
         stage('Validate in Staging') {
             stages {
                 stage('Deploy to Staging') {
                     steps {
                         unstash 'workspace'
-                        withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIAL}", variable: 'KCFG')]) {
+                        withEnv(["KCFG=${env.STAGING_KUBE_CONFIG_PATH}"]) {
                             script {
                                 def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                                 echo "Pre-production validation: Deploying to staging..."
@@ -187,6 +188,7 @@ pipeline {
                                     env.IMAGE_TAG,
                                     env.CHANGED_SERVICES
                                 )
+                                env.STAGING_DEPLOYS = env.SUCCESSFUL_DEPLOYS
                             }
                         }
                     }
@@ -194,7 +196,7 @@ pipeline {
                 
                 stage('Integration & E2E Tests') {
                     steps {
-                        withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIAL}", variable: 'KCFG')]) {
+                        withEnv(["KCFG=${env.STAGING_KUBE_CONFIG_PATH}"]) {
                             script {
                                 def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                                 echo "Running comprehensive test suite in staging..."
@@ -247,7 +249,7 @@ pipeline {
                 
                 stage('Performance Tests') {
                     steps {
-                        withCredentials([file(credentialsId: "${KUBECONFIG_CREDENTIAL}", variable: 'KCFG')]) {
+                        withEnv(["KCFG=${env.STAGING_KUBE_CONFIG_PATH}"]) {
                             script {
                                 def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                                 echo "Running performance tests with production-like load..."
@@ -306,6 +308,36 @@ pipeline {
                 }
             }
         }
+
+        stage('Provision Production Infrastructure (Terraform)') {
+            steps {
+                script {
+                    echo "Provisioning production infrastructure via Terraform..."
+                    withCredentials([
+                        string(credentialsId: 'ARM_CLIENT_ID', variable: 'ARM_CLIENT_ID'),
+                        string(credentialsId: 'ARM_CLIENT_SECRET', variable: 'ARM_CLIENT_SECRET'),
+                        string(credentialsId: 'ARM_SUBSCRIPTION_ID', variable: 'ARM_SUBSCRIPTION_ID'),
+                        string(credentialsId: 'ARM_TENANT_ID', variable: 'ARM_TENANT_ID')
+                    ]) {
+                        sh '''
+                            set -e
+                            cd infra/terraform/environments/${K8S_NAMESPACE_PROD}
+                            terraform init -input=false
+                            terraform apply -input=false -auto-approve -var-file=${K8S_NAMESPACE_PROD}.tfvars
+                            RG_NAME=$(terraform output -raw resource_group_name)
+                            AKS_NAME=$(terraform output -raw aks_cluster_name)
+                            mkdir -p "${WORKSPACE}/.kube"
+                            rm -f "${WORKSPACE}/.kube/${K8S_NAMESPACE_PROD}-config"
+                            az login --service-principal -u "$ARM_CLIENT_ID" -p "$ARM_CLIENT_SECRET" --tenant "$ARM_TENANT_ID" >/dev/null
+                            az aks get-credentials --resource-group "$RG_NAME" --name "$AKS_NAME" --file "${WORKSPACE}/.kube/${K8S_NAMESPACE_PROD}-config" --overwrite-existing
+                        '''
+                    }
+                    env.PROD_KUBE_CONFIG_PATH = "${env.WORKSPACE}/.kube/${K8S_NAMESPACE_PROD}-config"
+                    env.TF_PROD_APPLIED = 'true'
+                    stash name: 'prod-kubeconfig', includes: ".kube/${K8S_NAMESPACE_PROD}-config"
+                }
+            }
+        }
         
         stage('Deploy to Production') {
             steps {
@@ -326,6 +358,7 @@ pipeline {
                             env.CHANGED_SERVICES
                         )
                         
+                        env.PROD_DEPLOYS = env.SUCCESSFUL_DEPLOYS
                         echo "✓ Production deployment completed"
                     }
                 }
@@ -395,6 +428,21 @@ pipeline {
                 echo "🔄 Consider rollback procedures if deployment reached production"
                 echo "========================================="
                 
+                def prodServices = env.PROD_DEPLOYS
+                def stagingServices = env.STAGING_DEPLOYS
+
+                if (prodServices?.trim()) {
+                    commonFunctions.rollbackServices(env.K8S_NAMESPACE_PROD, prodServices, env.PROD_KUBE_CONFIG_PATH)
+                } else {
+                    echo "Skipping rollback at production: no deployment occurred in this run."
+                }
+                
+                if (stagingServices?.trim()) {
+                    commonFunctions.rollbackServices(env.K8S_NAMESPACE_STAGING, stagingServices, env.STAGING_KUBE_CONFIG_PATH)
+                } else {
+                    echo "Skipping rollback at staging: no deployment occurred in this run."
+                }
+
                 commonFunctions.notifyFailure(env.TARGET_ENVIRONMENT, env.CHANGED_SERVICES)
             }
         }

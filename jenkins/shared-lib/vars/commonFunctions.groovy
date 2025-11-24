@@ -95,52 +95,52 @@ def pushDockerImages(registry, imageTag, latestTag, changedServices, dockerUser,
 
 def deployToKubernetes(environment, namespace, registry, imageTag, changedServices) {
     def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
-    def allServices = commonVars.getServicesList()
-    
+    def deployedServices = []
+
     echo "========================================="
     echo "Deploying services to ${environment}"
     echo "Namespace: ${namespace}"
     echo "========================================="
-    
-    // PASO 0: Ensure namespace exists before applying resources
+
     ensureNamespace(namespace)
 
-    // PASO 1: Apply ConfigMap first (services depend on it)
     echo "Step 1: Applying ConfigMap for ${environment}..."
     applyConfigMap(environment, namespace)
-    
-    // PASO 2: Deploy core services (in order)
-    echo "Step 2: Deploying core services..."
-    def coreServices = commonVars.getCoreServices()
-    for (service in coreServices) {
-        if (changedServices.contains(service.name)) {
-            deployService(service, environment, namespace, registry, imageTag)
-        }
-    }
 
-    // PASO 3: Deploy monitoring services
-    echo "Step 3: Deploying monitoring services..."
-    def monitoringServices = commonVars.getMonitoringServices()
-    for (service in monitoringServices) {
-        if (changedServices.contains(service.name)) {
-            deployService(service, environment, namespace, registry, imageTag)
-        }
-    }
-    
-    // PASO 4: Deploy business services in parallel
-    echo "Step 4: Deploying business services..."
-    def businessServices = commonVars.getBusinessServices()
-    def businessDeployStages = [:]
-    businessServices.each { service ->
-        if (changedServices.contains(service.name)) {
-            businessDeployStages["Deploy ${service.name}"] = {
-                deployService(service, environment, namespace, registry, imageTag)
+    def deployListInOrder = [
+        commonVars.getCoreServices(),
+        commonVars.getMonitoringServices()
+    ]
+
+    deployListInOrder.each { group ->
+        group.each { service ->
+            if (changedServices.contains(service.name)) {
+                deployServiceWithTracking(service, environment, namespace, registry, imageTag, deployedServices)
             }
         }
     }
-    
-    if (!businessDeployStages.isEmpty()) {
-        parallel businessDeployStages
+
+    echo "Step 4: Deploying business services..."
+    def businessServices = commonVars.getBusinessServices()
+    def businessStages = [:]
+    businessServices.each { service ->
+        if (changedServices.contains(service.name)) {
+            def svc = service
+            businessStages["Deploy ${svc.name}"] = {
+                deployServiceWithTracking(svc, environment, namespace, registry, imageTag, deployedServices)
+            }
+        }
+    }
+    if (!businessStages.isEmpty()) {
+        parallel businessStages
+    }
+
+    if (!deployedServices.isEmpty()) {
+        env.SUCCESSFUL_DEPLOYS = deployedServices.join(',')
+        echo "Services deployed successfully: ${env.SUCCESSFUL_DEPLOYS}"
+    } else {
+        env.SUCCESSFUL_DEPLOYS = ''
+        echo "No services were deployed in this stage."
     }
 }
 
@@ -188,6 +188,31 @@ def getAndConfigureKubeConfigFromTerraform(envNamespace, armClientId, armClientS
     return "${env.WORKSPACE}/.kube/security-${envNamespace}"
 }
 
+def rollbackServices(namespace, services, kubeconfigPath) {
+    if (!services?.trim()) {
+        echo "No services provided for rollback."
+        return
+    }
+    if (!kubeconfigPath?.trim()) {
+        echo "No kubeconfig path provided; rollback skipped."
+        return
+    }
+
+    def serviceList = services.split(',').collect { it.trim() }.findAll { it }
+    if (serviceList.isEmpty()) {
+        echo "Service list empty after parsing; rollback skipped."
+        return
+    }
+
+    sh """
+        chmod +x jenkins/scripts/rollback-services.sh
+        jenkins/scripts/rollback-services.sh \
+            --kubeconfig "${kubeconfigPath}" \
+            --namespace "${namespace}" \
+            --services "${serviceList.join(',')}"
+    """
+}
+
 def collectPodImages(namespace, kubeconfigPath, reportDir) {
     def imageListFile = "${reportDir}/images.txt"
     withEnv([
@@ -229,6 +254,11 @@ def deployService(serviceConfig, environment, namespace, registry, imageTag) {
             "${environment}" \
             '${serviceConfigJson}'
     """
+}
+
+def deployServiceWithTracking(serviceConfig, environment, namespace, registry, imageTag, deployedServicesRef) {
+    deployService(serviceConfig, environment, namespace, registry, imageTag)
+    deployedServicesRef << serviceConfig.name
 }
 
 def getLoadBalancerIP(serviceName, namespace) {
@@ -302,6 +332,11 @@ def generateAndPublishRelease(releaseVersion, githubToken) {
     archiveArtifacts artifacts: 'release_notes.md,CHANGELOG.md', 
                      fingerprint: true, 
                      allowEmptyArchive: true
+
+    def releaseNotesLink = env.BUILD_URL ? "${env.BUILD_URL}artifact/release_notes.md" : 'release_notes.md'
+    def summary = "📦 Release ${releaseVersion} publicado"
+    def details = "Notas: ${releaseNotesLink}\nServicios: ${env.CHANGED_SERVICES ?: 'N/A'}"
+    sendNotification('info', summary, details, env.CHANGED_SERVICES, false)
 }
 
 def publishAllTestResults(changedServices) {
