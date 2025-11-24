@@ -58,9 +58,41 @@ def product_data():
 @pytest.fixture
 def order_data():
     """Sample order data for tests"""
+    from datetime import datetime
     return {
         "orderId": 100,
+        "orderDate": datetime.now().strftime("%d-%m-%Y__%H:%M:%S:000000"),
         "orderDesc": "Test Order",
         "orderFee": 99.99,
         "cart": {"cartId": 100},
+    }
+
+
+@pytest.fixture
+def cart_data():
+    """Sample cart data for tests"""
+    return {
+        "cartId": 100,
+        "userId": 1,
+    }
+
+
+@pytest.fixture
+def payment_data():
+    """Sample payment data for tests"""
+    return {
+        "paymentId": 100,
+        "isPayed": True,
+        "paymentStatus": "COMPLETED",
+        "order": {"orderId": 1},
+    }
+
+
+@pytest.fixture
+def order_item_data():
+    """Sample order item data for tests"""
+    return {
+        "productId": 1,
+        "orderId": 1,
+        "orderedQuantity": 5,
     }

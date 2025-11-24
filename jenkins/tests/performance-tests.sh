@@ -71,3 +71,5 @@ fi
 
 # Move back to root
 cd ..
+
+exit $TEST_EXIT_CODE

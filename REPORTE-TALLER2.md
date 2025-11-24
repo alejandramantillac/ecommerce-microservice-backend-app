@@ -1103,7 +1103,7 @@ Estos tests validan la interacción entre múltiples servicios:
 - Product Service (catálogo de productos)
 - Favourite Service (sistema de favoritos)
 
-**Total E2E Tests**: 3 pruebas que validan flujos críticos de negocio ✅
+**Total E2E Tests**: 14 pruebas que validan flujos críticos de negocio ✅
 
 ### 5.4 Pruebas de Performance (Locust)
 
@@ -1207,6 +1207,198 @@ Estos datos permiten identificar:
 - Endpoints problemáticos que requieren optimización
 
 ---
+
+### 5.5 Informes de Cobertura y Calidad de Pruebas
+
+Se implementó un sistema completo de generación y publicación de reportes de cobertura y calidad de pruebas para garantizar la visibilidad y trazabilidad de la cobertura de código en todo el proyecto.
+
+#### 5.5.1 Cobertura Java (JaCoCo)
+
+**Configuración:**
+
+El plugin JaCoCo 0.8.8 está configurado en el POM padre y declarado en todos los microservicios (10 servicios en total). La configuración incluye:
+
+- **Generación automática**: Reportes HTML y XML generados automáticamente en la fase `package`
+- **Umbrales de cobertura**: Validación automática de 50% mínimo de cobertura de líneas
+- **Exclusiones configuradas**: DTOs, Entities, Configs y clases de aplicación excluidas de la medición
+- **Integración con SonarQube**: Reportes XML compatibles para análisis de calidad
+
+**Ubicación de Reportes:**
+
+```
+{service}/target/site/jacoco/
+├── index.html          # Reporte HTML interactivo
+├── jacoco.xml          # Reporte XML (para SonarQube)
+└── jacoco.csv          # Reporte CSV
+```
+
+**Ejemplo de Reporte Generado:**
+
+El reporte HTML muestra:
+- Cobertura total por paquete y clase
+- Líneas cubiertas vs. no cubiertas
+- Cobertura de branches (ramas condicionales)
+- Cobertura de métodos y clases
+- Navegación interactiva por el código fuente
+
+**Servicios con JaCoCo Configurado:**
+- ✅ user-service
+- ✅ order-service
+- ✅ payment-service
+- ✅ shipping-service
+- ✅ product-service
+- ✅ favourite-service
+- ✅ api-gateway
+- ✅ proxy-client
+- ✅ service-discovery
+- ✅ cloud-config
+
+#### 5.5.2 Cobertura Python (Coverage.py)
+
+**Configuración:**
+
+Para los tests de integración y E2E escritos en Python, se configuró Coverage.py con:
+
+- **Dependencias**: `pytest-cov` y `coverage` agregados a `requirements.txt`
+- **Configuración**: Archivo `.coveragerc` con exclusiones apropiadas
+- **Generación automática**: Reportes HTML, XML y JSON generados durante la ejecución de tests
+
+**Ubicación de Reportes:**
+
+```
+tests/
+├── coverage-integration/
+│   └── index.html      # Reporte HTML de tests de integración
+├── coverage-integration.xml
+├── coverage-integration.json
+├── coverage-e2e/
+│   └── index.html      # Reporte HTML de tests E2E
+├── coverage-e2e.xml
+└── coverage-e2e.json
+```
+
+**Nota Importante:**
+
+Los tests de integración y E2E principalmente realizan llamadas HTTP a servicios externos. Coverage.py solo puede medir código Python ejecutado, por lo que la cobertura se genera cuando hay código Python propio ejecutado durante los tests (utilidades, helpers, etc.).
+
+#### 5.5.3 Integración en Pipelines Jenkins
+
+**Funciones Implementadas en `commonFunctions.groovy`:**
+
+1. **`publishJavaCoverageReports(changedServices)`**
+   - Publica reportes HTML de JaCoCo por cada servicio modificado
+   - Archiva reportes XML para integración con SonarQube
+   - Crea enlaces HTML en Jenkins para visualización
+
+2. **`publishPythonCoverageReports()`**
+   - Publica reportes HTML de tests de integración y E2E
+   - Archiva reportes XML y JSON para análisis posterior
+   - Integra con el sistema de reportes de Jenkins
+
+3. **`generateConsolidatedCoverageReport(changedServices)`**
+   - Genera un reporte HTML consolidado con cobertura de todos los servicios
+   - Muestra métricas de cobertura Java y Python en una sola vista
+   - Incluye indicadores visuales (Good ≥70%, Warning 50-69%, Low <50%)
+   - Proporciona enlaces a reportes individuales
+
+**Stages en Pipelines:**
+
+Todos los pipelines (dev, stage, prod) incluyen:
+
+```groovy
+stage('Publish Coverage Reports') {
+    steps {
+        script {
+            def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+            commonFunctions.publishJavaCoverageReports(env.CHANGED_SERVICES)
+        }
+    }
+}
+
+stage('Publish Test Coverage Reports') {
+    steps {
+        script {
+            def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+            commonFunctions.publishPythonCoverageReports()
+            commonFunctions.generateConsolidatedCoverageReport(env.CHANGED_SERVICES)
+        }
+    }
+}
+```
+
+#### 5.5.4 Reporte Consolidado
+
+Se implementó un script (`jenkins/scripts/generate-coverage-report.sh`) que genera un reporte HTML consolidado que incluye:
+
+- **Tabla de cobertura**: Todos los servicios Java y tipos de tests Python
+- **Porcentaje de cobertura**: Métricas claras por servicio/test
+- **Estado visual**: Indicadores de color (verde/naranja/rojo) según umbrales
+- **Enlaces a reportes**: Acceso directo a reportes individuales
+- **Umbrales documentados**: Leyenda explicativa de los niveles de cobertura
+
+**Umbrales de Cobertura:**
+
+| Nivel | Cobertura | Estado | Color |
+|-------|-----------|--------|-------|
+| **Good** | ≥ 70% | ✓ Good | Verde |
+| **Warning** | 50-69% | ⚠ Warning | Naranja |
+| **Low** | < 50% | ✗ Low | Rojo |
+
+**Umbral mínimo configurado**: 50% (validado automáticamente por JaCoCo durante el build)
+
+#### 5.5.5 Generación Automática
+
+**Durante Build Local:**
+
+```bash
+# Generar cobertura para un servicio
+mvn clean test jacoco:report -pl user-service -am
+
+# Generar cobertura para todos los servicios
+mvn clean test jacoco:report
+```
+
+**Durante Pipelines Jenkins:**
+
+- **Build & Test Stage**: Genera cobertura Java automáticamente
+- **Run Tests Stage**: Genera cobertura Python automáticamente
+- **Publish Coverage Reports Stage**: Publica todos los reportes en Jenkins
+
+**Scripts de Build:**
+
+El script `jenkins/scripts/build-service.sh` fue actualizado para:
+- Ejecutar tests con cobertura automática
+- Generar reportes JaCoCo después de los tests
+- Integrar la generación en el proceso de build estándar
+
+#### 5.5.6 Visualización en Jenkins
+
+Los reportes se publican automáticamente en Jenkins y están disponibles en:
+
+1. **Reportes Individuales por Servicio**:
+   - Sección "HTML Reports" en cada build
+   - Enlaces directos a reportes HTML de cada servicio
+   - Reportes XML archivados como artifacts
+
+2. **Reporte Consolidado**:
+   - "Consolidated Coverage Report" en HTML Reports
+   - Vista general de toda la cobertura del proyecto
+   - Fácil identificación de servicios con baja cobertura
+
+3. **Artifacts**:
+   - Reportes XML y JSON archivados para integración con herramientas externas
+   - Historial de reportes mantenido por Jenkins
+
+#### 5.5.7 Beneficios Implementados
+
+1. **Visibilidad Completa**: Cobertura clara y accesible para todos los servicios
+2. **Calidad Garantizada**: Umbrales que aseguran cobertura mínima del 50%
+3. **Consolidación**: Vista única de toda la cobertura del proyecto
+4. **Integración**: Compatible con SonarQube y otras herramientas de calidad
+5. **Automatización**: Generación y publicación automática en cada build
+6. **Trazabilidad**: Historial de cobertura a lo largo del tiempo
+
+**Estado**: ✅ **IMPLEMENTACIÓN COMPLETA**
 
 ## 6. ANÁLISIS DE RESULTADOS Y MÉTRICAS
 
