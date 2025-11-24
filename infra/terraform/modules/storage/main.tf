@@ -11,10 +11,6 @@ resource "azurerm_storage_account" "this" {
     versioning_enabled = var.enable_versioning
   }
 
-  lifecycle {
-    prevent_destroy = var.prevent_destroy
-  }
-
   tags = merge(var.tags, {
     Name = var.storage_account_name
   })
