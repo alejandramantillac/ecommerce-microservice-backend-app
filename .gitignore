@@ -54,3 +54,7 @@ endurance-data*.csv
 *.pem
 kubeconfig*.yml
 *.key
+
+# Security test reports (OWASP ZAP)
+zap-reports/
+zap-*-report.*

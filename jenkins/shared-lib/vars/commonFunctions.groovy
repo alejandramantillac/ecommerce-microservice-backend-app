@@ -285,6 +285,11 @@ def runAllTests(namespace, changedServices) {
     ]
 
     parallel testStages
+    
+    // Security tests run after other tests (sequential to avoid resource conflicts)
+    stage('Security Tests') {
+        runSecurityTests(namespace, apiGatewayUrl, 'baseline', 'zap-reports')
+    }
 }
 
 def runIntegrationTests(namespace, apiGatewayUrl, integrationTests) {
@@ -347,6 +352,18 @@ def runEnduranceTests(namespace, apiGatewayUrl, users = '100', spawnRate = '10',
     """
     
     archiveArtifacts artifacts: 'endurance-report.html,endurance-data*.csv', 
+                     fingerprint: true, 
+                     allowEmptyArchive: true
+}
+
+def runSecurityTests(namespace, apiGatewayUrl, scanType = 'baseline', reportDir = 'zap-reports') {
+    sh """
+        chmod +x jenkins/tests/security-tests.sh
+        export KCFG="\${KCFG}"
+        jenkins/tests/security-tests.sh "${namespace}" "${apiGatewayUrl}" "${scanType}" "${reportDir}"
+    """
+    
+    archiveArtifacts artifacts: 'zap-reports/**/*.html,zap-reports/**/*.json,zap-reports/**/*.xml', 
                      fingerprint: true, 
                      allowEmptyArchive: true
 }
