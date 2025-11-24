@@ -83,11 +83,20 @@ pipeline {
             }
         }
         
-        stage('Publish Results') {
+        stage('Publish Test Results') {
             steps {
                 script {
                     def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                     commonFunctions.publishAllTestResults(env.CHANGED_SERVICES)
+                }
+            }
+        }
+        
+        stage('Publish Coverage Reports') {
+            steps {
+                script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    commonFunctions.publishJavaCoverageReports(env.CHANGED_SERVICES)
                 }
             }
         }

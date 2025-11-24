@@ -394,6 +394,85 @@ def publishAllTestResults(changedServices) {
     }
 }
 
+def publishJavaCoverageReports(changedServices) {
+    def serviceList = changedServices.split(',')
+    
+    for (serviceName in serviceList) {
+        def service = serviceName.trim()
+        def coverageReport = "${service}/target/site/jacoco/index.html"
+        def coverageXml = "${service}/target/site/jacoco/jacoco.xml"
+        
+        if (fileExists(coverageReport)) {
+            echo "Publishing coverage report for ${service}..."
+            publishHTML([
+                reportName: "${service} Coverage Report",
+                reportDir: "${service}/target/site/jacoco",
+                reportFiles: 'index.html',
+                keepAll: true,
+                alwaysLinkToLastBuild: true
+            ])
+        }
+        
+        if (fileExists(coverageXml)) {
+            archiveArtifacts artifacts: "${service}/target/site/jacoco/**/*", 
+                             fingerprint: true, 
+                             allowEmptyArchive: true
+        }
+    }
+}
+
+def publishPythonCoverageReports() {
+    // Publish integration test coverage
+    if (fileExists('coverage-integration/index.html')) {
+        publishHTML([
+            reportName: 'Integration Tests Coverage',
+            reportDir: 'coverage-integration',
+            reportFiles: 'index.html',
+            keepAll: true,
+            alwaysLinkToLastBuild: true
+        ])
+        archiveArtifacts artifacts: 'coverage-integration/**/*,coverage-integration.xml,coverage-integration.json', 
+                         fingerprint: true, 
+                         allowEmptyArchive: true
+    }
+    
+    // Publish E2E test coverage
+    if (fileExists('coverage-e2e/index.html')) {
+        publishHTML([
+            reportName: 'E2E Tests Coverage',
+            reportDir: 'coverage-e2e',
+            reportFiles: 'index.html',
+            keepAll: true,
+            alwaysLinkToLastBuild: true
+        ])
+        archiveArtifacts artifacts: 'coverage-e2e/**/*,coverage-e2e.xml,coverage-e2e.json', 
+                         fingerprint: true, 
+                         allowEmptyArchive: true
+    }
+}
+
+def generateConsolidatedCoverageReport(changedServices) {
+    echo "Generating consolidated coverage report..."
+    
+    sh """
+        chmod +x jenkins/scripts/generate-coverage-report.sh
+        jenkins/scripts/generate-coverage-report.sh "${changedServices}"
+    """
+    
+    if (fileExists('coverage-consolidated/index.html')) {
+        publishHTML([
+            reportName: 'Consolidated Coverage Report',
+            reportDir: 'coverage-consolidated',
+            reportFiles: 'index.html',
+            keepAll: true,
+            alwaysLinkToLastBuild: true
+        ])
+        archiveArtifacts artifacts: 'coverage-consolidated/**/*', 
+                     fingerprint: true, 
+                     allowEmptyArchive: true
+    }
+}
+
 def notifyStart(environment, services) {
     def summary = "🚀 ${environment.toUpperCase()} pipeline started - ${env.JOB_NAME} #${env.BUILD_NUMBER}"
     def details = "Servicios a construir/desplegar: ${services ?: 'N/A'}"

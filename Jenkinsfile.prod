@@ -148,6 +148,15 @@ pipeline {
             }
         }
         
+        stage('Publish Coverage Reports') {
+            steps {
+                script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    commonFunctions.publishJavaCoverageReports(env.CHANGED_SERVICES)
+                }
+            }
+        }
+        
         stage('Publish to Registry') {
             steps {
                 unstash 'workspace'
@@ -221,26 +230,34 @@ pipeline {
                     }
                     post {
                         always {
-                            // Publish test reports
-                            publishHTML([
-                                allowMissing: true,
-                                reportDir: 'tests',
-                                reportFiles: 'integration-report.html',
-                                reportName: 'Integration Test Report',
-                                keepAll: true,
-                                alwaysLinkToLastBuild: true
-                            ])
-                            publishHTML([
-                                allowMissing: true,
-                                reportDir: 'tests',
-                                reportFiles: 'e2e-report.html',
-                                reportName: 'E2E Test Report',
-                                keepAll: true,
-                                alwaysLinkToLastBuild: true
-                            ])
-                            archiveArtifacts artifacts: 'tests/*-report.html,tests/*-report.json', 
-                                             fingerprint: true, 
-                                             allowEmptyArchive: true
+                            script {
+                                def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                                
+                                // Publish test reports
+                                publishHTML([
+                                    allowMissing: true,
+                                    reportDir: 'tests',
+                                    reportFiles: 'integration-report.html',
+                                    reportName: 'Integration Test Report',
+                                    keepAll: true,
+                                    alwaysLinkToLastBuild: true
+                                ])
+                                publishHTML([
+                                    allowMissing: true,
+                                    reportDir: 'tests',
+                                    reportFiles: 'e2e-report.html',
+                                    reportName: 'E2E Test Report',
+                                    keepAll: true,
+                                    alwaysLinkToLastBuild: true
+                                ])
+                                
+                                // Publish coverage reports
+                                commonFunctions.publishPythonCoverageReports()
+                                
+                                archiveArtifacts artifacts: 'tests/*-report.html,tests/*-report.json', 
+                                                 fingerprint: true, 
+                                                 allowEmptyArchive: true
+                            }
                         }
                     }
                 }

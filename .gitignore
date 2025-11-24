@@ -58,3 +58,12 @@ kubeconfig*.yml
 # Security test reports (OWASP ZAP)
 zap-reports/
 zap-*-report.*
+
+# Coverage reports (generated files)
+coverage-*/
+coverage-*.xml
+coverage-*.json
+coverage-*.html
+*.coverage
+.coverage
+htmlcov/
