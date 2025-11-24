@@ -72,6 +72,36 @@ pipeline {
             }
         }
 
+        stage('Provision Production Infrastructure (Terraform)') {
+            steps {
+                script {
+                    echo "Provisioning production infrastructure via Terraform..."
+                    withCredentials([
+                        string(credentialsId: 'ARM_CLIENT_ID', variable: 'ARM_CLIENT_ID'),
+                        string(credentialsId: 'ARM_CLIENT_SECRET', variable: 'ARM_CLIENT_SECRET'),
+                        string(credentialsId: 'ARM_SUBSCRIPTION_ID', variable: 'ARM_SUBSCRIPTION_ID'),
+                        string(credentialsId: 'ARM_TENANT_ID', variable: 'ARM_TENANT_ID')
+                    ]) {
+                        sh '''
+                            set -e
+                            cd infra/terraform/environments/${K8S_NAMESPACE_PROD}
+                            terraform init -input=false
+                            terraform apply -input=false -auto-approve -var-file=${K8S_NAMESPACE_PROD}.tfvars
+                            RG_NAME=$(terraform output -raw resource_group_name)
+                            AKS_NAME=$(terraform output -raw aks_cluster_name)
+                            mkdir -p "${WORKSPACE}/.kube"
+                            rm -f "${WORKSPACE}/.kube/${K8S_NAMESPACE_PROD}-config"
+                            az login --service-principal -u "$ARM_CLIENT_ID" -p "$ARM_CLIENT_SECRET" --tenant "$ARM_TENANT_ID" >/dev/null
+                            az aks get-credentials --resource-group "$RG_NAME" --name "$AKS_NAME" --file "${WORKSPACE}/.kube/${K8S_NAMESPACE_PROD}-config" --overwrite-existing
+                        '''
+                    }
+                    env.PROD_KUBE_CONFIG_PATH = "${env.WORKSPACE}/.kube/${K8S_NAMESPACE_PROD}-config"
+                    env.TF_PROD_APPLIED = 'true'
+                    stash name: 'prod-kubeconfig', includes: ".kube/${K8S_NAMESPACE_PROD}-config"
+                }
+            }
+        }
+
         stage('Build & Test') {
             steps {
                 script {
@@ -281,36 +311,6 @@ pipeline {
                               ok: 'Deploy to Production',
                               submitter: 'admin,release-manager'
                     }
-                }
-            }
-        }
-
-        stage('Provision Production Infrastructure (Terraform)') {
-            steps {
-                script {
-                    echo "Provisioning production infrastructure via Terraform..."
-                    withCredentials([
-                        string(credentialsId: 'ARM_CLIENT_ID', variable: 'ARM_CLIENT_ID'),
-                        string(credentialsId: 'ARM_CLIENT_SECRET', variable: 'ARM_CLIENT_SECRET'),
-                        string(credentialsId: 'ARM_SUBSCRIPTION_ID', variable: 'ARM_SUBSCRIPTION_ID'),
-                        string(credentialsId: 'ARM_TENANT_ID', variable: 'ARM_TENANT_ID')
-                    ]) {
-                        sh '''
-                            set -e
-                            cd infra/terraform/environments/${K8S_NAMESPACE_PROD}
-                            terraform init -input=false
-                            terraform apply -input=false -auto-approve -var-file=${K8S_NAMESPACE_PROD}.tfvars
-                            RG_NAME=$(terraform output -raw resource_group_name)
-                            AKS_NAME=$(terraform output -raw aks_cluster_name)
-                            mkdir -p "${WORKSPACE}/.kube"
-                            rm -f "${WORKSPACE}/.kube/${K8S_NAMESPACE_PROD}-config"
-                            az login --service-principal -u "$ARM_CLIENT_ID" -p "$ARM_CLIENT_SECRET" --tenant "$ARM_TENANT_ID" >/dev/null
-                            az aks get-credentials --resource-group "$RG_NAME" --name "$AKS_NAME" --file "${WORKSPACE}/.kube/${K8S_NAMESPACE_PROD}-config" --overwrite-existing
-                        '''
-                    }
-                    env.PROD_KUBE_CONFIG_PATH = "${env.WORKSPACE}/.kube/${K8S_NAMESPACE_PROD}-config"
-                    env.TF_PROD_APPLIED = 'true'
-                    stash name: 'prod-kubeconfig', includes: ".kube/${K8S_NAMESPACE_PROD}-config"
                 }
             }
         }
