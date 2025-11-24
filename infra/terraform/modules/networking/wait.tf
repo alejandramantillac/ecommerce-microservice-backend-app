@@ -1,18 +1,9 @@
-resource "time_sleep" "public_subnets_ready" {
-  for_each       = azurerm_subnet.public
+resource "time_sleep" "subnets_ready" {
   create_duration = var.subnet_propagation_wait
 
   depends_on = [
-    azurerm_subnet.public[each.key]
-  ]
-}
-
-resource "time_sleep" "private_subnets_ready" {
-  for_each       = azurerm_subnet.private
-  create_duration = var.subnet_propagation_wait
-
-  depends_on = [
-    azurerm_subnet.private[each.key]
+    azurerm_subnet.public,
+    azurerm_subnet.private
   ]
 }
 
