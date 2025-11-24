@@ -1,0 +1,163 @@
+# Logstash Configuration
+# Configures Logstash pipeline for processing logs
+# Apply: kubectl apply -f k8s/logstash-configmap.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: logstash-config
+  namespace: ${NAMESPACE}
+  labels:
+    app: logstash
+    component: logging
+data:
+  logstash.yml: |
+    http.host: "0.0.0.0"
+    xpack.monitoring.elasticsearch.hosts: ["http://elasticsearch:9200"]
+    xpack.monitoring.enabled: true
+    
+  pipelines.yml: |
+    - pipeline.id: main
+      path.config: "/usr/share/logstash/pipeline/logstash.conf"
+      
+  logstash.conf: |
+    input {
+      # Beats input for receiving logs from Filebeat
+      beats {
+        port => 5044
+      }
+      
+      # HTTP input for direct log ingestion (optional)
+      http {
+        port => 8080
+        codec => json
+      }
+    }
+    
+    filter {
+      # Parse JSON logs if they come as JSON
+      if [message] =~ /^\{/ {
+        json {
+          source => "message"
+        }
+      }
+      
+      # Parse Spring Boot logs with pattern: "yyyy-MM-dd HH:mm:ss - message"
+      # Example: "2024-01-15 10:30:45 - *** OrderDto, service; save order *"
+      if [message] =~ /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/ {
+        grok {
+          match => {
+            "message" => "(?<log_timestamp>\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}) - (?<log_message>.*)"
+          }
+          overwrite => [ "message" ]
+        }
+        
+        # Parse timestamp
+        date {
+          match => [ "log_timestamp", "yyyy-MM-dd HH:mm:ss" ]
+          target => "@timestamp"
+        }
+        
+        # Extract log level from message (INFO, DEBUG, ERROR, WARN)
+        grok {
+          match => {
+            "log_message" => "(?i)(?<log_level>INFO|DEBUG|ERROR|WARN|TRACE) - %{GREEDYDATA:log_message_clean}"
+          }
+        }
+        
+        # If log level not found, try to extract from message content
+        if ![log_level] {
+          if [log_message] =~ /(?i)error|exception|failed/ {
+            mutate {
+              add_field => { "log_level" => "ERROR" }
+            }
+          } else if [log_message] =~ /(?i)warn|warning/ {
+            mutate {
+              add_field => { "log_level" => "WARN" }
+            }
+          } else if [log_message] =~ /(?i)debug/ {
+            mutate {
+              add_field => { "log_level" => "DEBUG" }
+            }
+          } else {
+            mutate {
+              add_field => { "log_level" => "INFO" }
+            }
+          }
+        }
+        
+        # Extract service name from pod/container metadata
+        if [kubernetes] {
+          if [kubernetes][labels][app] {
+            mutate {
+              add_field => { "service" => "%{[kubernetes][labels][app]}" }
+            }
+          }
+          if [kubernetes][namespace] {
+            mutate {
+              add_field => { "namespace" => "%{[kubernetes][namespace]}" }
+            }
+          }
+          if [kubernetes][pod_name] {
+            mutate {
+              add_field => { "pod" => "%{[kubernetes][pod_name]}" }
+            }
+          }
+        }
+        
+        # Extract trace-id from message if present (Spring Cloud Sleuth)
+        grok {
+          match => {
+            "log_message" => ".*\[(?<trace_id>[a-f0-9-]{36})\].*"
+          }
+        }
+        
+        # Extract span-id from message if present
+        grok {
+          match => {
+            "log_message" => ".*\[(?<span_id>[a-f0-9]{16})\].*"
+          }
+        }
+        
+        # Clean up message field
+        mutate {
+          rename => { "log_message_clean" => "message" }
+          remove_field => [ "log_message" ]
+        }
+      }
+      
+      # Add environment tag
+      mutate {
+        add_field => { "environment" => "${ENVIRONMENT}" }
+      }
+      
+      # Add cluster tag
+      mutate {
+        add_field => { "cluster" => "ecommerce-microservices" }
+      }
+    }
+    
+    output {
+      # Send to Elasticsearch with index per service
+      elasticsearch {
+        hosts => ["http://elasticsearch:9200"]
+        index => "%{[service]}-logs-%{+YYYY.MM.dd}"
+        template_name => "logstash"
+        template => "/usr/share/logstash/templates/logstash-template.json"
+        template_overwrite => true
+      }
+      
+      # Fallback to default index if service not found
+      if ![service] {
+        elasticsearch {
+          hosts => ["http://elasticsearch:9200"]
+          index => "logstash-logs-%{+YYYY.MM.dd}"
+        }
+      }
+      
+      # Debug output (can be removed in production)
+      # stdout {
+      #   codec => rubydebug
+      # }
+    }
+

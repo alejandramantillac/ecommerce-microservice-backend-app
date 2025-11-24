@@ -304,6 +304,33 @@ def getServicesList() {
             ],
             healthPath: '/_cluster/health',
             replicas: [dev: 1, staging: 1, prod: 1]
+        ],
+
+        [
+            name: 'logstash',
+            port: 5044,
+            type: 'logging',
+            path: 'logstash',
+            external: false,
+            exposure: [
+                dev: [
+                    type: 'ClusterIP'
+                ],
+                staging: [
+                    type: 'ClusterIP'
+                ],
+                prod: [
+                    type: 'ClusterIP'
+                ]
+            ],
+            resources: [
+                memRequest: '1Gi',
+                memLimit: '2Gi',
+                cpuRequest: '500m',
+                cpuLimit: '1000m'
+            ],
+            healthPath: '/_node/pipelines',
+            replicas: [dev: 1, staging: 1, prod: 1]
         ]
     ]
 }
