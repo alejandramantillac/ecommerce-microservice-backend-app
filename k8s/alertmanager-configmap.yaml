@@ -1,0 +1,61 @@
+# Alertmanager Configuration
+# Configures alert routing and notification channels
+# Apply: kubectl apply -f k8s/alertmanager-configmap.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: alertmanager-config
+  namespace: ${NAMESPACE}
+  labels:
+    app: alertmanager
+    component: monitoring
+data:
+  alertmanager.yml: |
+    global:
+      resolve_timeout: 5m
+      # For production, configure SMTP or other notification channels
+      # smtp_smarthost: 'smtp.example.com:587'
+      # smtp_from: 'alerts@example.com'
+    
+    # Route configuration
+    route:
+      receiver: 'default'
+      group_by: ['alertname', 'cluster', 'service']
+      group_wait: 10s
+      group_interval: 10s
+      repeat_interval: 12h
+      routes:
+        - match:
+            severity: critical
+          receiver: 'critical'
+          continue: true
+        - match:
+            severity: warning
+          receiver: 'warning'
+    
+    # Inhibition rules
+    inhibit_rules:
+      - source_match:
+          severity: 'critical'
+        target_match:
+          severity: 'warning'
+        equal: ['alertname', 'cluster', 'service']
+    
+    # Receivers configuration
+    receivers:
+      - name: 'default'
+        # For development: log alerts
+        # For production: configure email, Slack, PagerDuty, etc.
+      
+      - name: 'critical'
+        # Critical alerts receiver
+        # Configure notification channels for production
+        # webhook_configs:
+        #   - url: 'http://slack-webhook-url'
+        #     send_resolved: true
+      
+      - name: 'warning'
+        # Warning alerts receiver
+        # Configure notification channels for production
+

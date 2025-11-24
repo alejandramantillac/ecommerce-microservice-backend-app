@@ -244,6 +244,36 @@ def getServicesList() {
             ],
             healthPath: '/api/health',
             replicas: [dev: 1, staging: 1, prod: 1]
+        ],
+
+        [
+            name: 'alertmanager',
+            port: 9093,
+            type: 'monitoring',
+            path: 'alertmanager',
+            external: true,
+            exposure: [
+                dev: [
+                    type: 'NodePort',
+                    nodePort: 30933
+                ],
+                staging: [
+                    type: 'NodePort',
+                    nodePort: 30933
+                ],
+                prod: [
+                    type: 'LoadBalancer',
+                    nodePort: 30933
+                ]
+            ],
+            resources: [
+                memRequest: '128Mi',
+                memLimit: '256Mi',
+                cpuRequest: '100m',
+                cpuLimit: '200m'
+            ],
+            healthPath: '/-/healthy',
+            replicas: [dev: 1, staging: 1, prod: 1]
         ]
     ]
 }
