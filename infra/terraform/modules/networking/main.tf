@@ -80,7 +80,6 @@ resource "azurerm_subnet" "public" {
   resource_group_name  = var.resource_group_name
   virtual_network_name = azurerm_virtual_network.this.name
   address_prefixes     = [each.value.cidr]
-  network_security_group_id = azurerm_network_security_group.public.id
 
   service_endpoints = var.public_subnet_service_endpoints
 }
@@ -92,7 +91,6 @@ resource "azurerm_subnet" "private" {
   resource_group_name  = var.resource_group_name
   virtual_network_name = azurerm_virtual_network.this.name
   address_prefixes     = [each.value.cidr]
-  network_security_group_id = azurerm_network_security_group.private.id
 
   dynamic "delegation" {
     for_each = var.enable_private_delegation ? ["aks"] : []
@@ -109,5 +107,21 @@ resource "azurerm_subnet" "private" {
   }
 
   service_endpoints = var.private_subnet_service_endpoints
+}
+
+resource "azurerm_subnet_network_security_group_association" "public" {
+  for_each = var.public_subnets
+
+  subnet_id                 = azurerm_subnet.public[each.key].id
+  network_security_group_id = azurerm_network_security_group.public.id
+  depends_on                = [time_sleep.subnets_ready]
+}
+
+resource "azurerm_subnet_network_security_group_association" "private" {
+  for_each = var.private_subnets
+
+  subnet_id                 = azurerm_subnet.private[each.key].id
+  network_security_group_id = azurerm_network_security_group.private.id
+  depends_on                = [time_sleep.subnets_ready]
 }
 
