@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import com.selimhorri.app.dto.UserDto;
 import com.selimhorri.app.exception.wrapper.UserObjectNotFoundException;
 import com.selimhorri.app.helper.UserMappingHelper;
+import com.selimhorri.app.metrics.BusinessMetrics;
 import com.selimhorri.app.repository.UserRepository;
 import com.selimhorri.app.service.UserService;
 
@@ -23,6 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 public class UserServiceImpl implements UserService {
 	
 	private final UserRepository userRepository;
+	private final BusinessMetrics businessMetrics;
 	
 	@Override
 	public List<UserDto> findAll() {
@@ -45,7 +47,12 @@ public class UserServiceImpl implements UserService {
 	@Override
 	public UserDto save(final UserDto userDto) {
 		log.info("*** UserDto, service; save user *");
-		return UserMappingHelper.map(this.userRepository.save(UserMappingHelper.map(userDto)));
+		UserDto savedUser = UserMappingHelper.map(this.userRepository.save(UserMappingHelper.map(userDto)));
+		
+		// Record business metrics
+		this.businessMetrics.recordUserRegistered();
+		
+		return savedUser;
 	}
 	
 	@Override

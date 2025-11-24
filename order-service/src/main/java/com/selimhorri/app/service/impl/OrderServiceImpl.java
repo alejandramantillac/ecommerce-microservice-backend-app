@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import com.selimhorri.app.dto.OrderDto;
 import com.selimhorri.app.exception.wrapper.OrderNotFoundException;
 import com.selimhorri.app.helper.OrderMappingHelper;
+import com.selimhorri.app.metrics.BusinessMetrics;
 import com.selimhorri.app.repository.OrderRepository;
 import com.selimhorri.app.service.OrderService;
 
@@ -23,6 +24,7 @@ import lombok.extern.slf4j.Slf4j;
 public class OrderServiceImpl implements OrderService {
 	
 	private final OrderRepository orderRepository;
+	private final BusinessMetrics businessMetrics;
 	
 	@Override
 	public List<OrderDto> findAll() {
@@ -46,8 +48,17 @@ public class OrderServiceImpl implements OrderService {
 	@Override
 	public OrderDto save(final OrderDto orderDto) {
 		log.info("*** OrderDto, service; save order *");
-		return OrderMappingHelper.map(this.orderRepository
+		OrderDto savedOrder = OrderMappingHelper.map(this.orderRepository
 				.save(OrderMappingHelper.map(orderDto)));
+		
+		// Record business metrics
+		if (savedOrder.getOrderFee() != null) {
+			this.businessMetrics.recordOrderCreated(savedOrder.getOrderFee());
+		} else {
+			this.businessMetrics.recordOrderCreated(0.0);
+		}
+		
+		return savedOrder;
 	}
 	
 	@Override
