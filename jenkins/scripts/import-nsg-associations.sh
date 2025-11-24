@@ -13,11 +13,6 @@ if [[ -z "${ARM_SUBSCRIPTION_ID:-}" ]]; then
   exit 1
 fi
 
-if ! command -v python >/dev/null 2>&1; then
-  echo "python command is required to import NSG associations." >&2
-  exit 1
-fi
-
 # Evaluate a Terraform expression and return the last line of output.
 tf_eval() {
   local expr="$1"
@@ -27,7 +22,7 @@ EOF
 }
 
 parse_json_list() {
-  python -c 'import json, sys; data=json.load(sys.stdin); print(" ".join(str(item) for item in data))'
+  python3 -c 'import json, sys; data=json.load(sys.stdin); print(" ".join(str(item) for item in data))'
 }
 
 NAME_PREFIX=$(tf_eval 'jsonencode(local.name_prefix)' | tr -d '"')
