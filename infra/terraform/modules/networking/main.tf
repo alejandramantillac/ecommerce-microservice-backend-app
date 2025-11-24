@@ -114,7 +114,9 @@ resource "azurerm_subnet_network_security_group_association" "public" {
 
   subnet_id                 = azurerm_subnet.public[each.key].id
   network_security_group_id = azurerm_network_security_group.public.id
-  depends_on                = [time_sleep.subnets_ready]
+  depends_on = [
+    time_sleep.public_subnets_ready[each.key]
+  ]
 }
 
 resource "azurerm_subnet_network_security_group_association" "private" {
@@ -122,6 +124,8 @@ resource "azurerm_subnet_network_security_group_association" "private" {
 
   subnet_id                 = azurerm_subnet.private[each.key].id
   network_security_group_id = azurerm_network_security_group.private.id
-  depends_on                = [time_sleep.subnets_ready]
+  depends_on = [
+    time_sleep.private_subnets_ready[each.key]
+  ]
 }
 

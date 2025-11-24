@@ -86,7 +86,6 @@ pipeline {
                             set -e
                             cd infra/terraform/environments/${K8S_NAMESPACE_PROD}
                             terraform init -input=false
-                            ${WORKSPACE}/jenkins/scripts/import-nsg-associations.sh ${K8S_NAMESPACE_PROD}.tfvars
                             terraform apply -input=false -auto-approve -var-file=${K8S_NAMESPACE_PROD}.tfvars
                             RG_NAME=$(terraform output -raw resource_group_name)
                             AKS_NAME=$(terraform output -raw aks_cluster_name)
@@ -187,7 +186,6 @@ pipeline {
                             cd infra/terraform/environments/${K8S_NAMESPACE_STAGING}
                             terraform version
                             terraform init -input=false
-                            ${WORKSPACE}/jenkins/scripts/import-nsg-associations.sh ${K8S_NAMESPACE_STAGING}.tfvars
                             terraform apply -input=false -auto-approve -var-file=${K8S_NAMESPACE_STAGING}.tfvars
                             RG_NAME=$(terraform output -raw resource_group_name)
                             AKS_NAME=$(terraform output -raw aks_cluster_name)
