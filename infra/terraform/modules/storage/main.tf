@@ -12,7 +12,7 @@ resource "azurerm_storage_account" "this" {
   }
 
   lifecycle {
-    prevent_destroy = true
+    prevent_destroy = var.prevent_destroy
   }
 
   tags = merge(var.tags, {

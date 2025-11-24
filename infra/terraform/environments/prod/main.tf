@@ -49,6 +49,7 @@ module "storage" {
   replication_type        = var.storage_replication_type
   artifact_container_name = local.artifact_container
   logs_container_name     = local.logs_container
+  prevent_destroy         = var.storage_prevent_destroy
   tags                    = local.base_tags
 }
 

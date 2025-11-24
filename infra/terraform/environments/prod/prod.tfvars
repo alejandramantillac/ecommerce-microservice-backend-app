@@ -25,6 +25,7 @@ aks_subnet_key = "core"
 db_subnet_key  = "data"
 
 storage_replication_type = "LRS"
+storage_prevent_destroy  = false
 
 aks_node_vm_size      = "Standard_D2s_v3"
 aks_node_count        = 2

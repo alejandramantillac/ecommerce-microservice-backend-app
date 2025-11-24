@@ -37,6 +37,12 @@ variable "enable_versioning" {
   default     = true
 }
 
+variable "prevent_destroy" {
+  type        = bool
+  description = "Evita que Terraform destruya accidentalmente el storage account."
+  default     = true
+}
+
 variable "tags" {
   type        = map(string)
   description = "Etiquetas."

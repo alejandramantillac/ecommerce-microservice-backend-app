@@ -75,6 +75,12 @@ variable "storage_replication_type" {
   default     = "LRS"
 }
 
+variable "storage_prevent_destroy" {
+  description = "Evita que Terraform destruya el storage account."
+  type        = bool
+  default     = true
+}
+
 # AKS
 variable "kubernetes_version" {
   type    = string
