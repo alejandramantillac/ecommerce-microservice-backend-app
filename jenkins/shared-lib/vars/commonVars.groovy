@@ -184,6 +184,36 @@ def getServicesList() {
             ],
             healthPath: '/health',
             replicas: [dev: 1, staging: 1, prod: 1]
+        ],
+
+        [
+            name: 'prometheus',
+            port: 9090,
+            type: 'monitoring',
+            path: 'prometheus',
+            external: true,
+            exposure: [
+                dev: [
+                    type: 'NodePort',
+                    nodePort: 30909
+                ],
+                staging: [
+                    type: 'NodePort',
+                    nodePort: 30909
+                ],
+                prod: [
+                    type: 'LoadBalancer',
+                    nodePort: 30909
+                ]
+            ],
+            resources: [
+                memRequest: '512Mi',
+                memLimit: '2Gi',
+                cpuRequest: '250m',
+                cpuLimit: '1000m'
+            ],
+            healthPath: '/-/healthy',
+            replicas: [dev: 1, staging: 1, prod: 1]
         ]
     ]
 }
