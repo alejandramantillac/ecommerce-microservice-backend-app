@@ -243,16 +243,30 @@ def getLoadBalancerIP(serviceName, namespace) {
     return ip
 }
 
-def runAllTests(namespace) {
+def runAllTests(namespace, changedServices) {
+    def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
+    
     def stagingGatewayIP = getLoadBalancerIP('api-gateway', 'staging')
     def apiGatewayUrl = "http://${stagingGatewayIP}:8080"
 
+    def integrationTests = []
+    def e2eTests = ["e2e/test_user_flow.py"]
+
+    def serviceList = changedServices.split(',')
+    for (serviceName in serviceList) {
+        def service = serviceName.trim()
+        def serviceConfig = commonVars.getServiceConfig(service)
+        if (serviceConfig?.testsIntegration) {
+            integrationTests.addAll(serviceConfig.testsIntegration)
+        }
+    }
+
     def testStages = [
         'Integration Tests': {
-            runIntegrationTests(namespace, apiGatewayUrl)
+            runIntegrationTests(namespace, apiGatewayUrl, integrationTests)
         },
         'E2E Tests': {
-            runE2ETests(namespace, apiGatewayUrl)
+            runE2ETests(namespace, apiGatewayUrl, e2eTests)
         },
         'Performance Tests': {
             runPerformanceTests(namespace, apiGatewayUrl)
@@ -262,19 +276,19 @@ def runAllTests(namespace) {
     parallel testStages
 }
 
-def runIntegrationTests(namespace, apiGatewayUrl) {
+def runIntegrationTests(namespace, apiGatewayUrl, integrationTests) {
     sh """
         chmod +x jenkins/tests/integration-tests.sh
         export KCFG="\${KCFG}"
-        jenkins/tests/integration-tests.sh "${namespace}" "${apiGatewayUrl}"
+        jenkins/tests/integration-tests.sh "${namespace}" "${apiGatewayUrl}" "${integrationTests.join(',')}"
     """
 }
 
-def runE2ETests(namespace, apiGatewayUrl) {
+def runE2ETests(namespace, apiGatewayUrl, e2eTests) {
     sh """
         chmod +x jenkins/tests/e2e-tests.sh
         export KCFG="\${KCFG}"
-        jenkins/tests/e2e-tests.sh "${namespace}" "${apiGatewayUrl}"
+        jenkins/tests/e2e-tests.sh "${namespace}" "${apiGatewayUrl}" "${e2eTests.join(',')}"
     """
 }
 
