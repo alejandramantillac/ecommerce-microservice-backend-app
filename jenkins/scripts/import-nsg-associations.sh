@@ -27,8 +27,19 @@ VNET_NAME="${NAME_PREFIX}-vnet"
 PUBLIC_NSG="${NAME_PREFIX}-public-nsg"
 PRIVATE_NSG="${NAME_PREFIX}-private-nsg"
 
-PUBLIC_KEYS=$(tf_eval 'length(var.public_subnets) > 0 ? join(" ", keys(var.public_subnets)) : ""' | tr -d '"')
-PRIVATE_KEYS=$(tf_eval 'length(var.private_subnets) > 0 ? join(" ", keys(var.private_subnets)) : ""' | tr -d '"')
+PUBLIC_KEYS=$(terraform console -var-file="$TFVARS_FILE" -input=false <<'EOF'
+locals { map = keys(var.public_subnets) }
+local.map
+EOF
+)
+PUBLIC_KEYS=$(echo "$PUBLIC_KEYS" | tail -n1 | tr -d '[]"')
+
+PRIVATE_KEYS=$(terraform console -var-file="$TFVARS_FILE" -input=false <<'EOF'
+locals { map = keys(var.private_subnets) }
+local.map
+EOF
+)
+PRIVATE_KEYS=$(echo "$PRIVATE_KEYS" | tail -n1 | tr -d '[]"')
 
 ensure_import() {
   local kind="$1"
@@ -56,15 +67,13 @@ ensure_import() {
   terraform import "$tf_address" "${subnet_id}|${nsg_id}" >/dev/null
 }
 
-if [[ -n "$PUBLIC_KEYS" ]]; then
-  for key in $PUBLIC_KEYS; do
-    ensure_import "public" "$key"
-  done
-fi
+for key in $PUBLIC_KEYS; do
+  [[ -z "$key" ]] && continue
+  ensure_import "public" "$key"
+done
 
-if [[ -n "$PRIVATE_KEYS" ]]; then
-  for key in $PRIVATE_KEYS; do
-    ensure_import "private" "$key"
-  done
-fi
+for key in $PRIVATE_KEYS; do
+  [[ -z "$key" ]] && continue
+  ensure_import "private" "$key"
+done
 
