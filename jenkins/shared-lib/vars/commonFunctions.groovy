@@ -250,7 +250,7 @@ def runAllTests(namespace, changedServices) {
     def apiGatewayUrl = "http://${stagingGatewayIP}:8080"
 
     def integrationTests = []
-    def e2eTests = ["e2e/test_user_flow.py"]
+    def e2eTests = []
 
     def serviceList = changedServices.split(',')
     for (serviceName in serviceList) {
@@ -259,6 +259,17 @@ def runAllTests(namespace, changedServices) {
         if (serviceConfig?.testsIntegration) {
             integrationTests.addAll(serviceConfig.testsIntegration)
         }
+        if (serviceConfig?.testsE2E) {
+            e2eTests.addAll(serviceConfig.testsE2E)
+        }
+    }
+    
+    // Remove duplicates from e2eTests
+    e2eTests = e2eTests.unique()
+    
+    // If no E2E tests found, use default
+    if (e2eTests.isEmpty()) {
+        e2eTests = ["e2e/test_user_flow.py"]
     }
 
     def testStages = [

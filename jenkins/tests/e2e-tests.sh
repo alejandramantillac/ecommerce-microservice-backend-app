@@ -1,15 +1,18 @@
 #!/bin/bash
-# Script to run end-to-end tests using Python/Pytest
+# Script to run specified end-to-end tests using Python/Pytest
 
 set -e
 
 NAMESPACE="${1:-staging}"
 API_GATEWAY_URL="${2:-http://api-gateway.staging.svc.cluster.local:8080}"
+# TEST_FILES: comma-separated list of test files or modules to run, e.g. "e2e/test_user_flow.py,e2e/test_another.py"
+TEST_FILES="${3:-}"
 
 echo "========================================="
 echo "Running End-to-End Tests (Python/Pytest)"
 echo "Namespace: ${NAMESPACE}"
 echo "API Gateway: ${API_GATEWAY_URL}"
+echo "Test Files: ${TEST_FILES}"
 echo "========================================="
 
 echo ""
@@ -23,8 +26,17 @@ echo ""
 echo "Running E2E tests..."
 export API_GATEWAY_URL="${API_GATEWAY_URL}"
 
-# Run pytest with E2E tests
-python3 -m pytest e2e/ -v -m e2e \
+# Only run E2E tests passed in TEST_FILES
+if [[ -z "$TEST_FILES" ]]; then
+    echo "WARNING: No test files specified in TEST_FILES. Running all E2E tests."
+    PYTEST_FILES="e2e/"
+else
+    # Convert comma-separated TEST_FILES to space-separated for pytest
+    IFS=',' read -ra files_array <<< "$TEST_FILES"
+    PYTEST_FILES="${files_array[@]}"
+fi
+
+python3 -m pytest $PYTEST_FILES -v -m e2e \
     --html=e2e-report.html \
     --self-contained-html \
     --json-report \
