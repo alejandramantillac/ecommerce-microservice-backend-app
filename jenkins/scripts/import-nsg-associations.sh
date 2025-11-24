@@ -21,18 +21,14 @@ $expr
 EOF
 }
 
-parse_json_list() {
-  python3 -c 'import json, sys; data=json.load(sys.stdin); print(" ".join(str(item) for item in data))'
-}
-
 NAME_PREFIX=$(tf_eval 'jsonencode(local.name_prefix)' | tr -d '"')
 RESOURCE_GROUP="${NAME_PREFIX}-rg"
 VNET_NAME="${NAME_PREFIX}-vnet"
 PUBLIC_NSG="${NAME_PREFIX}-public-nsg"
 PRIVATE_NSG="${NAME_PREFIX}-private-nsg"
 
-PUBLIC_KEYS=$(tf_eval 'jsonencode(keys(var.public_subnets))' | parse_json_list)
-PRIVATE_KEYS=$(tf_eval 'jsonencode(keys(var.private_subnets))' | parse_json_list || true)
+PUBLIC_KEYS=$(tf_eval 'length(var.public_subnets) > 0 ? join(" ", keys(var.public_subnets)) : ""' | tr -d '"')
+PRIVATE_KEYS=$(tf_eval 'length(var.private_subnets) > 0 ? join(" ", keys(var.private_subnets)) : ""' | tr -d '"')
 
 ensure_import() {
   local kind="$1"
@@ -60,12 +56,15 @@ ensure_import() {
   terraform import "$tf_address" "${subnet_id}|${nsg_id}" >/dev/null
 }
 
-for key in $PUBLIC_KEYS; do
-  ensure_import "public" "$key"
-done
+if [[ -n "$PUBLIC_KEYS" ]]; then
+  for key in $PUBLIC_KEYS; do
+    ensure_import "public" "$key"
+  done
+fi
 
-for key in $PRIVATE_KEYS; do
-  [[ -z "$key" ]] && continue
-  ensure_import "private" "$key"
-done
+if [[ -n "$PRIVATE_KEYS" ]]; then
+  for key in $PRIVATE_KEYS; do
+    ensure_import "private" "$key"
+  done
+fi
 
