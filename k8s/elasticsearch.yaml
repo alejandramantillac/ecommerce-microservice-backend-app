@@ -1,0 +1,120 @@
+# Elasticsearch Deployment and Service
+# Provides log storage and search capabilities
+# Apply: kubectl apply -f k8s/elasticsearch.yaml
+
+apiVersion: v1
+kind: Service
+metadata:
+  name: elasticsearch
+  namespace: ${NAMESPACE}
+  labels:
+    app: elasticsearch
+    component: logging
+spec:
+  selector:
+    app: elasticsearch
+  ports:
+    - port: 9200
+      targetPort: 9200
+      protocol: TCP
+      name: http
+      nodePort: 30920
+    - port: 9300
+      targetPort: 9300
+      protocol: TCP
+      name: transport
+  type: NodePort
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: elasticsearch
+  namespace: ${NAMESPACE}
+  labels:
+    app: elasticsearch
+    component: logging
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: elasticsearch
+  template:
+    metadata:
+      labels:
+        app: elasticsearch
+        component: logging
+    spec:
+      containers:
+        - name: elasticsearch
+          image: docker.elastic.co/elasticsearch/elasticsearch:8.11.0
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: cluster.name
+              value: "ecommerce-microservices"
+            - name: node.name
+              valueFrom:
+                fieldRef:
+                  fieldPath: metadata.name
+            - name: discovery.type
+              value: "single-node"
+            - name: ES_JAVA_OPTS
+              value: "-Xms1g -Xmx1g"
+            - name: bootstrap.memory_lock
+              value: "false"
+            - name: xpack.security.enabled
+              value: "false"
+            - name: xpack.security.enrollment.enabled
+              value: "false"
+            - name: xpack.security.http.ssl.enabled
+              value: "false"
+            - name: xpack.security.transport.ssl.enabled
+              value: "false"
+            - name: xpack.monitoring.collection.enabled
+              value: "true"
+            - name: action.auto_create_index
+              value: "true"
+          ports:
+            - containerPort: 9200
+              name: http
+              protocol: TCP
+            - containerPort: 9300
+              name: transport
+              protocol: TCP
+          volumeMounts:
+            - name: elasticsearch-config
+              mountPath: /usr/share/elasticsearch/config/elasticsearch.yml
+              subPath: elasticsearch.yml
+              readOnly: true
+            - name: elasticsearch-storage
+              mountPath: /usr/share/elasticsearch/data
+          resources:
+            requests:
+              memory: "2Gi"
+              cpu: "1000m"
+            limits:
+              memory: "2Gi"
+              cpu: "1000m"
+          readinessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 60
+            periodSeconds: 10
+            timeoutSeconds: 5
+            failureThreshold: 3
+          livenessProbe:
+            httpGet:
+              path: /_cluster/health
+              port: 9200
+            initialDelaySeconds: 90
+            periodSeconds: 30
+            timeoutSeconds: 5
+            failureThreshold: 3
+      volumes:
+        - name: elasticsearch-config
+          configMap:
+            name: elasticsearch-config
+        - name: elasticsearch-storage
+          persistentVolumeClaim:
+            claimName: elasticsearch-data
+

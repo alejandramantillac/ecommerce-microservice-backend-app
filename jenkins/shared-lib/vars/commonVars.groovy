@@ -274,6 +274,36 @@ def getServicesList() {
             ],
             healthPath: '/-/healthy',
             replicas: [dev: 1, staging: 1, prod: 1]
+        ],
+
+        [
+            name: 'elasticsearch',
+            port: 9200,
+            type: 'logging',
+            path: 'elasticsearch',
+            external: true,
+            exposure: [
+                dev: [
+                    type: 'NodePort',
+                    nodePort: 30920
+                ],
+                staging: [
+                    type: 'NodePort',
+                    nodePort: 30920
+                ],
+                prod: [
+                    type: 'LoadBalancer',
+                    nodePort: 30920
+                ]
+            ],
+            resources: [
+                memRequest: '2Gi',
+                memLimit: '2Gi',
+                cpuRequest: '1000m',
+                cpuLimit: '1000m'
+            ],
+            healthPath: '/_cluster/health',
+            replicas: [dev: 1, staging: 1, prod: 1]
         ]
     ]
 }

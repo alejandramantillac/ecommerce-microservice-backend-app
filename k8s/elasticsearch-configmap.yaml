@@ -1,0 +1,42 @@
+# Elasticsearch Configuration
+# Configures Elasticsearch cluster settings
+# Apply: kubectl apply -f k8s/elasticsearch-configmap.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: elasticsearch-config
+  namespace: ${NAMESPACE}
+  labels:
+    app: elasticsearch
+    component: logging
+data:
+  elasticsearch.yml: |
+    cluster.name: ecommerce-microservices
+    node.name: ${HOSTNAME}
+    network.host: 0.0.0.0
+    http.port: 9200
+    transport.port: 9300
+    
+    # Discovery settings for single-node cluster
+    discovery.type: single-node
+    
+    # Security settings (disabled for development)
+    xpack.security.enabled: false
+    xpack.security.enrollment.enabled: false
+    xpack.security.http.ssl.enabled: false
+    xpack.security.transport.ssl.enabled: false
+    
+    # Monitoring settings
+    xpack.monitoring.collection.enabled: true
+    
+    # Index settings
+    action.auto_create_index: true
+    
+    # Memory settings
+    bootstrap.memory_lock: false
+    
+    # Path settings
+    path.data: /usr/share/elasticsearch/data
+    path.logs: /usr/share/elasticsearch/logs
+
