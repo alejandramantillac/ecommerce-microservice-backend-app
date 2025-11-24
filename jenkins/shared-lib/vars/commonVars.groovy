@@ -361,6 +361,33 @@ def getServicesList() {
             ],
             healthPath: '/api/status',
             replicas: [dev: 1, staging: 1, prod: 1]
+        ],
+
+        [
+            name: 'filebeat',
+            port: 0,
+            type: 'logging',
+            path: 'filebeat',
+            external: false,
+            exposure: [
+                dev: [
+                    type: 'ClusterIP'
+                ],
+                staging: [
+                    type: 'ClusterIP'
+                ],
+                prod: [
+                    type: 'ClusterIP'
+                ]
+            ],
+            resources: [
+                memRequest: '100Mi',
+                memLimit: '200Mi',
+                cpuRequest: '100m',
+                cpuLimit: '200m'
+            ],
+            healthPath: '',
+            replicas: [dev: 1, staging: 1, prod: 1]  # DaemonSet: 1 per node
         ]
     ]
 }
