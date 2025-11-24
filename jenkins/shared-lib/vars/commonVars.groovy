@@ -214,6 +214,36 @@ def getServicesList() {
             ],
             healthPath: '/-/healthy',
             replicas: [dev: 1, staging: 1, prod: 1]
+        ],
+
+        [
+            name: 'grafana',
+            port: 3000,
+            type: 'monitoring',
+            path: 'grafana',
+            external: true,
+            exposure: [
+                dev: [
+                    type: 'NodePort',
+                    nodePort: 30300
+                ],
+                staging: [
+                    type: 'NodePort',
+                    nodePort: 30300
+                ],
+                prod: [
+                    type: 'LoadBalancer',
+                    nodePort: 30300
+                ]
+            ],
+            resources: [
+                memRequest: '256Mi',
+                memLimit: '512Mi',
+                cpuRequest: '100m',
+                cpuLimit: '500m'
+            ],
+            healthPath: '/api/health',
+            replicas: [dev: 1, staging: 1, prod: 1]
         ]
     ]
 }

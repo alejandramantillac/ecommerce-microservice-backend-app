@@ -1,0 +1,26 @@
+# Grafana Dashboards Provider Configuration
+# Configures Grafana to automatically load dashboards from ConfigMap
+# Apply: kubectl apply -f k8s/grafana-dashboards-provider-configmap.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: grafana-dashboards-provider
+  namespace: ${NAMESPACE}
+  labels:
+    app: grafana
+    component: monitoring
+data:
+  dashboards.yaml: |
+    apiVersion: 1
+    providers:
+      - name: 'default'
+        orgId: 1
+        folder: ''
+        type: file
+        disableDeletion: false
+        editable: true
+        allowUiUpdates: true
+          options:
+          path: /etc/grafana/provisioning/dashboards/dashboards
+
