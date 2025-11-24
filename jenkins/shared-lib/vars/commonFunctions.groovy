@@ -315,6 +315,42 @@ def runPerformanceTests(namespace, apiGatewayUrl, users = '50', spawnRate = '10'
                      allowEmptyArchive: true
 }
 
+def runStressTests(namespace, apiGatewayUrl, users = '500', spawnRate = '50', runTime = '300s') {
+    sh """
+        chmod +x jenkins/tests/stress-tests.sh
+        export KCFG="\${KCFG}"
+        jenkins/tests/stress-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}"
+    """
+    
+    archiveArtifacts artifacts: 'stress-report.html,stress-data*.csv', 
+                     fingerprint: true, 
+                     allowEmptyArchive: true
+}
+
+def runSpikeTests(namespace, apiGatewayUrl, users = '200', spawnRate = '100', runTime = '120s') {
+    sh """
+        chmod +x jenkins/tests/spike-tests.sh
+        export KCFG="\${KCFG}"
+        jenkins/tests/spike-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}"
+    """
+    
+    archiveArtifacts artifacts: 'spike-report.html,spike-data*.csv', 
+                     fingerprint: true, 
+                     allowEmptyArchive: true
+}
+
+def runEnduranceTests(namespace, apiGatewayUrl, users = '100', spawnRate = '10', runTime = '1800s') {
+    sh """
+        chmod +x jenkins/tests/endurance-tests.sh
+        export KCFG="\${KCFG}"
+        jenkins/tests/endurance-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}"
+    """
+    
+    archiveArtifacts artifacts: 'endurance-report.html,endurance-data*.csv', 
+                     fingerprint: true, 
+                     allowEmptyArchive: true
+}
+
 def generateAndPublishRelease(releaseVersion, githubToken) {
     sh """
         chmod +x jenkins/scripts/generate-release-notes.sh
