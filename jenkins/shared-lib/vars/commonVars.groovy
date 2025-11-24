@@ -71,7 +71,7 @@ def getServicesList() {
                 cpuLimit: '500m'
             ],
             testsIntegration: ['integration/test_favourite_service.py'],
-            testsE2E: ['e2e/test_user_flow.py'],  # Favourites are part of user flow
+            testsE2E: ['e2e/test_user_flow.py'],
             healthPath: '/favourite-service/actuator/health',
             replicas: [dev: 1, staging: 1, prod: 1]
         ],
