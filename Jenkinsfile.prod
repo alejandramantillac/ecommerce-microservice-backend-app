@@ -74,84 +74,6 @@ pipeline {
             }
         }
 
-        stage('Build & Test') {
-            steps {
-                script {
-                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                    
-                    echo "Building services for production release..."
-                    commonFunctions.buildServicesInParallel(
-                        env.CHANGED_SERVICES,
-                        env.REGISTRY,
-                        env.IMAGE_TAG,
-                        env.LATEST_TAG
-                    )
-                }
-            }
-        }
-
-        stage('Trivy Scan') {
-            steps {
-                script {
-                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                    commonFunctions.runTrivyScans(env.CHANGED_SERVICES, env.REGISTRY, env.IMAGE_TAG)
-                }
-            }
-        }
-        
-        stage('SonarCloud Analysis') {
-            steps {
-                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                    script {
-                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                        commonFunctions.runSonarAnalyses(env.CHANGED_SERVICES)
-                    }
-                }
-            }
-        }
-        
-        stage('Publish Unit Test Results') {
-            steps {
-                script {
-                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                    echo "Publishing unit test results..."
-                    commonFunctions.publishAllTestResults(env.CHANGED_SERVICES)
-                }
-            }
-        }
-        
-        stage('Publish Coverage Reports') {
-            steps {
-                script {
-                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                    commonFunctions.publishJavaCoverageReports(env.CHANGED_SERVICES)
-                }
-            }
-        }
-        
-        stage('Publish to Registry') {
-            steps {
-                unstash 'workspace'
-                withCredentials([usernamePassword(
-                    credentialsId: "${DOCKERHUB}",
-                    usernameVariable: 'DOCKER_USER',
-                    passwordVariable: 'DOCKER_PASS'
-                )]) {
-                    script {
-                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                        commonFunctions.pushDockerImages(
-                            env.REGISTRY,
-                            env.IMAGE_TAG,
-                            env.LATEST_TAG,
-                            env.CHANGED_SERVICES,
-                            env.DOCKER_USER,
-                            env.DOCKER_PASS
-                        )
-                    }
-                }
-            }
-        }
-
         stage('Provision Staging Infrastructure (Terraform)') {
             steps {
                 script {
@@ -185,26 +107,6 @@ pipeline {
         
         stage('Validate in Staging') {
             stages {
-                stage('Deploy to Staging') {
-                    steps {
-                        unstash 'workspace'
-                        withEnv(["KCFG=${env.STAGING_KUBE_CONFIG_PATH}"]) {
-                            script {
-                                def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                                echo "Pre-production validation: Deploying to staging..."
-                                commonFunctions.deployToKubernetes(
-                                    'staging',
-                                    env.K8S_NAMESPACE_STAGING,
-                                    env.REGISTRY,
-                                    env.IMAGE_TAG,
-                                    env.CHANGED_SERVICES
-                                )
-                                env.STAGING_DEPLOYS = env.SUCCESSFUL_DEPLOYS
-                            }
-                        }
-                    }
-                }
-                
                 stage('Integration & E2E Tests') {
                     steps {
                         withEnv(["KCFG=${env.STAGING_KUBE_CONFIG_PATH}"]) {
@@ -215,7 +117,7 @@ pipeline {
 
                                 echo "API Gateway URL: ${env.API_GATEWAY_URL}"
 
-                                commonFunctions.runAllTests(env.K8S_NAMESPACE)
+                                commonFunctions.runAllTests(env.K8S_NAMESPACE_STAGING)
                             }
                         }
                     }
