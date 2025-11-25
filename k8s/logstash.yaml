@@ -53,12 +53,10 @@ spec:
           imagePullPolicy: IfNotPresent
           env:
             - name: LS_JAVA_OPTS
-              value: "-Xmx512m -Xms512m"
+              value: "-Xmx384m -Xms384m"
             - name: XPACK_MONITORING_ENABLED
               value: "true"
             - name: XPACK_MONITORING_ELASTICSEARCH_HOSTS
-              value: "http://elasticsearch:9200"
-            - name: ELASTICSEARCH_HOSTS
               value: "http://elasticsearch:9200"
           ports:
             - containerPort: 5044
@@ -85,26 +83,26 @@ spec:
               readOnly: true
           resources:
             requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
               memory: "1Gi"
               cpu: "500m"
-            limits:
-              memory: "2Gi"
-              cpu: "1000m"
           readinessProbe:
             httpGet:
               path: /_node/pipelines
               port: 9600
-            initialDelaySeconds: 60
+            initialDelaySeconds: 40
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 3
             failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /_node/pipelines
               port: 9600
-            initialDelaySeconds: 90
+            initialDelaySeconds: 60
             periodSeconds: 30
-            timeoutSeconds: 5
+            timeoutSeconds: 3
             failureThreshold: 3
       volumes:
         - name: logstash-config

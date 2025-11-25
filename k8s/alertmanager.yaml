@@ -71,15 +71,15 @@ spec:
               port: 9093
             initialDelaySeconds: 10
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 3
             failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /-/healthy
               port: 9093
-            initialDelaySeconds: 30
+            initialDelaySeconds: 20
             periodSeconds: 30
-            timeoutSeconds: 5
+            timeoutSeconds: 3
             failureThreshold: 3
       volumes:
         - name: alertmanager-config

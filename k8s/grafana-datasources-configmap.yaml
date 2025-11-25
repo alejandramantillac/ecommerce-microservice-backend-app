@@ -21,7 +21,7 @@ data:
         isDefault: true
         editable: true
         jsonData:
-          timeInterval: "15s"
+          timeInterval: "30s"
           httpMethod: POST
         version: 1
 

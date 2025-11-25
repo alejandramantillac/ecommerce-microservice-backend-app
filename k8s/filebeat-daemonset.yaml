@@ -61,11 +61,12 @@ spec:
           mountPath: /var/log
           readOnly: true
         resources:
-          limits:
-            memory: 200Mi
           requests:
-            cpu: 100m
-            memory: 100Mi
+            cpu: 50m
+            memory: 64Mi
+          limits:
+            cpu: 150m
+            memory: 128Mi
       volumes:
       - name: config
         configMap:

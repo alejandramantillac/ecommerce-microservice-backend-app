@@ -11,7 +11,7 @@ metadata:
     app: grafana
     component: monitoring
 data:
-  dashboards.yaml: |
+  dashboard-provider.yaml: |
     apiVersion: 1
     providers:
       - name: 'default'
@@ -19,8 +19,7 @@ data:
         folder: ''
         type: file
         disableDeletion: false
-        editable: true
-        allowUiUpdates: true
-          options:
+        updateIntervalSeconds: 10
+        options:
           path: /etc/grafana/provisioning/dashboards/dashboards
 

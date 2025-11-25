@@ -43,7 +43,6 @@ data:
       }
       
       # Parse Spring Boot logs with pattern: "yyyy-MM-dd HH:mm:ss - message"
-      # Example: "2024-01-15 10:30:45 - *** OrderDto, service; save order *"
       if [message] =~ /^\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2}/ {
         grok {
           match => {
@@ -58,82 +57,46 @@ data:
           target => "@timestamp"
         }
         
-        # Extract log level from message (INFO, DEBUG, ERROR, WARN)
+        # Extract log level (simplified)
+        if [log_message] =~ /(?i)\b(ERROR|WARN|DEBUG|INFO|TRACE)\b/ {
+          grok {
+            match => {
+              "log_message" => "(?i).*\b(?<log_level>ERROR|WARN|DEBUG|INFO|TRACE)\b.*"
+            }
+          }
+        } else {
+          mutate {
+            add_field => { "log_level" => "INFO" }
+          }
+        }
+        
+        # Extract service from Kubernetes metadata (Filebeat adds this)
+        if [kubernetes][labels][app] {
+          mutate {
+            add_field => { "service" => "%{[kubernetes][labels][app]}" }
+          }
+        }
+        
+        # Extract trace-id and span-id (Spring Cloud Sleuth)
         grok {
           match => {
-            "log_message" => "(?i)(?<log_level>INFO|DEBUG|ERROR|WARN|TRACE) - %{GREEDYDATA:log_message_clean}"
+            "log_message" => ".*\[(?<trace_id>[a-f0-9-]{36})\].*\[(?<span_id>[a-f0-9]{16})\].*"
           }
         }
         
-        # If log level not found, try to extract from message content
-        if ![log_level] {
-          if [log_message] =~ /(?i)error|exception|failed/ {
-            mutate {
-              add_field => { "log_level" => "ERROR" }
-            }
-          } else if [log_message] =~ /(?i)warn|warning/ {
-            mutate {
-              add_field => { "log_level" => "WARN" }
-            }
-          } else if [log_message] =~ /(?i)debug/ {
-            mutate {
-              add_field => { "log_level" => "DEBUG" }
-            }
-          } else {
-            mutate {
-              add_field => { "log_level" => "INFO" }
-            }
-          }
-        }
-        
-        # Extract service name from pod/container metadata
-        if [kubernetes] {
-          if [kubernetes][labels][app] {
-            mutate {
-              add_field => { "service" => "%{[kubernetes][labels][app]}" }
-            }
-          }
-          if [kubernetes][namespace] {
-            mutate {
-              add_field => { "namespace" => "%{[kubernetes][namespace]}" }
-            }
-          }
-          if [kubernetes][pod_name] {
-            mutate {
-              add_field => { "pod" => "%{[kubernetes][pod_name]}" }
-            }
-          }
-        }
-        
-        # Extract trace-id from message if present (Spring Cloud Sleuth)
-        grok {
-          match => {
-            "log_message" => ".*\[(?<trace_id>[a-f0-9-]{36})\].*"
-          }
-        }
-        
-        # Extract span-id from message if present
-        grok {
-          match => {
-            "log_message" => ".*\[(?<span_id>[a-f0-9]{16})\].*"
-          }
-        }
-        
-        # Clean up message field
+        # Clean up
         mutate {
-          rename => { "log_message_clean" => "message" }
-          remove_field => [ "log_message" ]
+          rename => { "log_message" => "message" }
+          remove_field => [ "log_timestamp" ]
         }
       }
       
-      # Add environment tag
+      # Add common fields
       mutate {
-        add_field => { "environment" => "${ENVIRONMENT}" }
-      }
-      
-      # Add cluster tag
-      mutate {
-        add_field => { "cluster" => "ecommerce-microservices" }
+        add_field => { 
+          "environment" => "${ENVIRONMENT}"
+          "cluster" => "ecommerce-microservices"
+        }
       }
     }
     

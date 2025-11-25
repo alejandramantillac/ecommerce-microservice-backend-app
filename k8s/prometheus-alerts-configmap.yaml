@@ -14,7 +14,7 @@ data:
   alerts.yml: |
     groups:
       - name: service_health
-        interval: 30s
+        interval: 60s
         rules:
           - alert: ServiceDown
             expr: up{job=~"(api-gateway|user-service|product-service|order-service|payment-service|shipping-service|favourite-service|proxy-client|service-discovery)"} == 0
@@ -27,7 +27,7 @@ data:
               description: "Service {{ $labels.job }} has been down for more than 1 minute"
       
       - name: error_rate
-        interval: 30s
+        interval: 60s
         rules:
           - alert: HighErrorRate
             expr: |
@@ -36,7 +36,7 @@ data:
                 /
                 sum(rate(http_server_requests_seconds_count[5m])) by (service)
               ) * 100 > 5
-            for: 5m
+            for: 3m
             labels:
               severity: critical
               component: service
@@ -45,7 +45,7 @@ data:
               description: "Error rate for {{ $labels.service }} is {{ $value }}% (threshold: 5%)"
       
       - name: latency
-        interval: 30s
+        interval: 60s
         rules:
           - alert: HighLatency
             expr: |
@@ -61,12 +61,12 @@ data:
               description: "p95 latency for {{ $labels.service }} is {{ $value }}s (threshold: 1s)"
       
       - name: resource_usage
-        interval: 30s
+        interval: 60s
         rules:
           - alert: HighCPUUsage
             expr: |
               sum(rate(process_cpu_usage[5m])) by (service) * 100 > 80
-            for: 5m
+            for: 3m
             labels:
               severity: warning
               component: resource
@@ -78,7 +78,7 @@ data:
             expr: |
               (sum(jvm_memory_used_bytes{area="heap"}) by (service) 
                / sum(jvm_memory_max_bytes{area="heap"}) by (service)) * 100 > 80
-            for: 5m
+            for: 3m
             labels:
               severity: warning
               component: resource
@@ -87,12 +87,12 @@ data:
               description: "Memory usage for {{ $labels.service }} is {{ $value }}% (threshold: 80%)"
       
       - name: infrastructure
-        interval: 30s
+        interval: 60s
         rules:
           - alert: PodCrashLooping
             expr: |
               rate(kube_pod_container_status_restarts_total[15m]) > 0
-            for: 5m
+            for: 3m
             labels:
               severity: critical
               component: infrastructure
@@ -101,7 +101,7 @@ data:
               description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is restarting repeatedly"
       
       - name: resilience
-        interval: 30s
+        interval: 60s
         rules:
           - alert: CircuitBreakerOpen
             expr: |
@@ -115,12 +115,12 @@ data:
               description: "Circuit breaker {{ $labels.name }} has been open for more than 1 minute"
       
       - name: traffic
-        interval: 30s
+        interval: 60s
         rules:
           - alert: HighRequestRate
             expr: |
               sum(rate(http_server_requests_seconds_count[5m])) by (service) > 1000
-            for: 2m
+            for: 3m
             labels:
               severity: warning
               component: traffic

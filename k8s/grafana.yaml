@@ -70,30 +70,30 @@ spec:
               mountPath: /etc/grafana/provisioning/dashboards/dashboards
               readOnly: true
             - name: grafana-dashboards-provider
-              mountPath: /etc/grafana/provisioning/dashboards
+              mountPath: /etc/grafana/provisioning/dashboards/providers
               readOnly: true
           resources:
             requests:
-              memory: "256Mi"
+              memory: "192Mi"
               cpu: "100m"
             limits:
-              memory: "512Mi"
-              cpu: "500m"
+              memory: "384Mi"
+              cpu: "300m"
           readinessProbe:
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 30
+            initialDelaySeconds: 20
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 3
             failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /api/health
               port: 3000
-            initialDelaySeconds: 60
+            initialDelaySeconds: 40
             periodSeconds: 30
-            timeoutSeconds: 5
+            timeoutSeconds: 3
             failureThreshold: 3
       volumes:
         - name: grafana-storage

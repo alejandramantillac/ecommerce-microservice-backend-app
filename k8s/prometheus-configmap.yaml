@@ -13,9 +13,9 @@ metadata:
 data:
   prometheus.yml: |
     global:
-      scrape_interval: 15s      # Scrape targets every 15 seconds
+      scrape_interval: 30s      # Scrape targets every 30 seconds (optimized)
       scrape_timeout: 10s       # Timeout for scraping
-      evaluation_interval: 15s  # Evaluate rules every 15 seconds
+      evaluation_interval: 30s  # Evaluate rules every 30 seconds (optimized)
       external_labels:
         cluster: 'ecommerce-microservices'
         environment: '${ENVIRONMENT}'

@@ -66,26 +66,26 @@ spec:
               readOnly: true
           resources:
             requests:
+              memory: "512Mi"
+              cpu: "250m"
+            limits:
               memory: "1Gi"
               cpu: "500m"
-            limits:
-              memory: "2Gi"
-              cpu: "1000m"
           readinessProbe:
             httpGet:
               path: /api/status
               port: 5601
-            initialDelaySeconds: 60
+            initialDelaySeconds: 40
             periodSeconds: 10
-            timeoutSeconds: 5
+            timeoutSeconds: 3
             failureThreshold: 3
           livenessProbe:
             httpGet:
               path: /api/status
               port: 5601
-            initialDelaySeconds: 90
+            initialDelaySeconds: 60
             periodSeconds: 30
-            timeoutSeconds: 5
+            timeoutSeconds: 3
             failureThreshold: 3
       volumes:
         - name: kibana-config

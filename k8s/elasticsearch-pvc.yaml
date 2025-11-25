@@ -15,6 +15,6 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 20Gi
+      storage: 15Gi  # Optimized storage
   # storageClassName: standard  # Uncomment and specify if using specific storage class
 

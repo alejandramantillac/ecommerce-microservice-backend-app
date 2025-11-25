@@ -15,7 +15,7 @@ spec:
     - ReadWriteOnce
   resources:
     requests:
-      storage: 10Gi
+      storage: 8Gi  # Optimized for 7 days retention
   # storageClassName: standard  # Uncomment and specify if using specific storage class
 
 

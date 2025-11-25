@@ -43,11 +43,11 @@ data:
     xpack.security.enabled: false
     xpack.encryptedSavedObjects.encryptionKey: "min-32-char-long-encryption-key-for-dev-only"
     
-    # Features
-    xpack.reporting.enabled: true
-    xpack.canvas.enabled: true
-    xpack.maps.enabled: true
-    xpack.ml.enabled: true
-    xpack.graph.enabled: true
+    # Features (optimized - disable unused features)
+    xpack.reporting.enabled: false
+    xpack.canvas.enabled: false
+    xpack.maps.enabled: false
+    xpack.ml.enabled: false
+    xpack.graph.enabled: false
     xpack.monitoring.enabled: true
 
