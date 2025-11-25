@@ -464,6 +464,155 @@ def cleanSpace() {
     """
 }
 
+/**
+ * Deploy Monitoring Stack (Prometheus, Grafana, Alertmanager)
+ * @param namespace Kubernetes namespace
+ * @param environment Environment name (staging/prod)
+ * @param serviceType Service type (NodePort/LoadBalancer)
+ */
+def deployMonitoringStack(namespace, environment, serviceType = 'NodePort') {
+    echo "========================================="
+    echo "Deploying Monitoring Stack"
+    echo "========================================="
+    echo "Namespace: ${namespace}"
+    echo "Environment: ${environment}"
+    echo "Service Type: ${serviceType}"
+    echo "========================================="
+    
+    // Determine NodePorts based on environment
+    def prometheusPort = environment == 'prod' ? '30909' : '30909'
+    def grafanaPort = environment == 'prod' ? '30300' : '30300'
+    def alertmanagerPort = environment == 'prod' ? '30933' : '30933'
+    
+    // Deploy Prometheus
+    echo ""
+    echo "Deploying Prometheus..."
+    sh """
+        chmod +x jenkins/scripts/deploy/deploy-prometheus.sh
+        export KCFG="\${KCFG:-}"
+        jenkins/scripts/deploy/deploy-prometheus.sh "${namespace}" "${environment}" "${serviceType}" "${prometheusPort}"
+    """
+    
+    // Wait a bit for Prometheus to be ready
+    sleep(time: 10, unit: 'SECONDS')
+    
+    // Deploy Alertmanager (depends on Prometheus for alert rules)
+    echo ""
+    echo "Deploying Alertmanager..."
+    sh """
+        chmod +x jenkins/scripts/deploy/deploy-alertmanager.sh
+        export KCFG="\${KCFG:-}"
+        jenkins/scripts/deploy/deploy-alertmanager.sh "${namespace}" "${environment}" "${serviceType}" "${alertmanagerPort}"
+    """
+    
+    // Deploy Grafana (depends on Prometheus as datasource)
+    echo ""
+    echo "Deploying Grafana..."
+    sh """
+        chmod +x jenkins/scripts/deploy/deploy-grafana.sh
+        export KCFG="\${KCFG:-}"
+        jenkins/scripts/deploy/deploy-grafana.sh "${namespace}" "${environment}" "${serviceType}" "${grafanaPort}"
+    """
+    
+    echo ""
+    echo "========================================="
+    echo "Monitoring Stack deployment completed!"
+    echo "========================================="
+    
+    // Verify deployments
+    echo ""
+    echo "Verifying monitoring stack deployments..."
+    sh """
+        kubectl --kubeconfig="\${KCFG}" get pods -n "${namespace}" -l 'app in (prometheus,grafana,alertmanager)' || true
+    """
+}
+
+/**
+ * Deploy ELK Stack (Elasticsearch, Logstash, Kibana, Filebeat)
+ * @param namespace Kubernetes namespace
+ * @param environment Environment name (staging/prod)
+ * @param serviceType Service type (NodePort/LoadBalancer)
+ */
+def deployELKStack(namespace, environment, serviceType = 'NodePort') {
+    echo "========================================="
+    echo "Deploying ELK Stack"
+    echo "========================================="
+    echo "Namespace: ${namespace}"
+    echo "Environment: ${environment}"
+    echo "Service Type: ${serviceType}"
+    echo "========================================="
+    
+    // Determine NodePorts based on environment
+    def elasticsearchPort = environment == 'prod' ? '30920' : '30920'
+    def kibanaPort = environment == 'prod' ? '30561' : '30561'
+    
+    // Define kubectl command (reusable)
+    def kubectlCmd = env.KCFG ? "kubectl --kubeconfig=\"\${KCFG}\"" : "kubectl"
+    
+    // Step 1: Deploy Elasticsearch (required by Logstash and Kibana)
+    echo ""
+    echo "Step 1: Deploying Elasticsearch..."
+    sh """
+        chmod +x jenkins/scripts/deploy/deploy-elasticsearch.sh
+        export KCFG="\${KCFG:-}"
+        jenkins/scripts/deploy/deploy-elasticsearch.sh "${namespace}" "${environment}" "${serviceType}" "${elasticsearchPort}"
+    """
+    
+    // Wait for Elasticsearch to be ready
+    echo "Waiting for Elasticsearch to be ready..."
+    sh """
+        ${kubectlCmd} wait --for=condition=Available deployment/elasticsearch -n "${namespace}" --timeout=300s || true
+    """
+    sleep(time: 15, unit: 'SECONDS')
+    
+    // Step 2: Deploy Logstash (depends on Elasticsearch)
+    echo ""
+    echo "Step 2: Deploying Logstash..."
+    sh """
+        chmod +x jenkins/scripts/deploy/deploy-logstash.sh
+        export KCFG="\${KCFG:-}"
+        jenkins/scripts/deploy/deploy-logstash.sh "${namespace}" "${environment}"
+    """
+    
+    // Wait for Logstash to be ready
+    echo "Waiting for Logstash to be ready..."
+    sh """
+        ${kubectlCmd} wait --for=condition=Available deployment/logstash -n "${namespace}" --timeout=300s || true
+    """
+    sleep(time: 10, unit: 'SECONDS')
+    
+    // Step 3: Deploy Kibana (depends on Elasticsearch)
+    echo ""
+    echo "Step 3: Deploying Kibana..."
+    sh """
+        chmod +x jenkins/scripts/deploy/deploy-kibana.sh
+        export KCFG="\${KCFG:-}"
+        jenkins/scripts/deploy/deploy-kibana.sh "${namespace}" "${environment}" "${serviceType}" "${kibanaPort}"
+    """
+    
+    // Step 4: Deploy Filebeat (depends on Logstash)
+    echo ""
+    echo "Step 4: Deploying Filebeat..."
+    sh """
+        chmod +x jenkins/scripts/deploy/deploy-filebeat.sh
+        export KCFG="\${KCFG:-}"
+        jenkins/scripts/deploy/deploy-filebeat.sh "${namespace}" "${environment}"
+    """
+    
+    echo ""
+    echo "========================================="
+    echo "ELK Stack deployment completed!"
+    echo "========================================="
+    
+    // Verify deployments
+    echo ""
+    echo "Verifying ELK stack deployments..."
+    sh """
+        ${kubectlCmd} get pods -n "${namespace}" -l 'app in (elasticsearch,logstash,kibana,filebeat)' || true
+        ${kubectlCmd} get daemonset -n "${namespace}" filebeat || true
+    """
+}
+
 def sendNotification(severity, summary, details, services, includeMentions = false) {
     echo "========================================="
     echo summary
