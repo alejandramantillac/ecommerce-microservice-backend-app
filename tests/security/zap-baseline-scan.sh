@@ -22,6 +22,8 @@ echo "Timeout: ${TIMEOUT}s"
 echo "========================================="
 
 mkdir -p "${REPORT_DIR}"
+# Ensure directory is writable by ZAP container user
+chmod 777 "${REPORT_DIR}" 2>/dev/null || true
 
 # Check if Docker is available
 if ! command -v docker &> /dev/null; then
