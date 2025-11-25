@@ -87,11 +87,20 @@ pipeline {
             }
         }
         
-        stage('Publish Results') {
+        stage('Publish Test Results') {
             steps {
                 script {
                     def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                     commonFunctions.publishAllTestResults(env.CHANGED_SERVICES)
+                }
+            }
+        }
+        
+        stage('Publish Coverage Reports') {
+            steps {
+                script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    commonFunctions.publishJavaCoverageReports(env.CHANGED_SERVICES)
                 }
             }
         }
@@ -214,8 +223,18 @@ pipeline {
 
                         echo "API Gateway URL: ${env.API_GATEWAY_URL}"
 
-                        commonFunctions.runAllTests(env.K8S_NAMESPACE)
+                        commonFunctions.runAllTests(env.K8S_NAMESPACE, env.CHANGED_SERVICES)
                     }
+                }
+            }
+        }
+        
+        stage('Publish Test Coverage Reports') {
+            steps {
+                script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    commonFunctions.publishPythonCoverageReports()
+                    commonFunctions.generateConsolidatedCoverageReport(env.CHANGED_SERVICES)
                 }
             }
         }

@@ -51,6 +51,12 @@ variable "enable_private_delegation" {
   default     = false
 }
 
+variable "subnet_propagation_wait" {
+  description = "Tiempo de espera antes de asociar NSG o delegar subnets (para evitar errores de propagación en Azure)."
+  type        = string
+  default     = "30s"
+}
+
 variable "tags" {
   description = "Etiquetas adicionales."
   type        = map(string)

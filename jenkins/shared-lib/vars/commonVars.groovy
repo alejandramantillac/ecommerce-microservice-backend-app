@@ -26,6 +26,8 @@ def getServicesList() {
                 cpuRequest: '250m',
                 cpuLimit: '500m'
             ],
+            testsIntegration: ['integration/test_user_service.py'],
+            testsE2E: ['e2e/test_user_flow.py'],
             healthPath: '/user-service/actuator/health',
             replicas: [dev: 1, staging: 1, prod: 1]
         ],
@@ -46,6 +48,8 @@ def getServicesList() {
                 cpuRequest: '250m',
                 cpuLimit: '500m'
             ],
+            testsIntegration: ['integration/test_product_service.py'],
+            testsE2E: ['e2e/test_product_browsing_flow.py'],
             healthPath: '/product-service/actuator/health',
             replicas: [dev: 1, staging: 1, prod: 1]
         ],
@@ -66,6 +70,8 @@ def getServicesList() {
                 cpuRequest: '250m',
                 cpuLimit: '500m'
             ],
+            testsIntegration: ['integration/test_favourite_service.py'],
+            testsE2E: ['e2e/test_user_flow.py'],
             healthPath: '/favourite-service/actuator/health',
             replicas: [dev: 1, staging: 1, prod: 1]
         ],

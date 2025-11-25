@@ -1,6 +1,6 @@
 project     = "ecommerce"
 environment = "prod"
-location    = "eastus2"
+location    = "centralus"
 
 default_tags = {
   Owner = "platform-team"

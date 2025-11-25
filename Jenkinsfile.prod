@@ -48,13 +48,15 @@ pipeline {
                     
                     // Calculate semantic version automatically based on commits
                     echo "Calculating semantic version from commits..."
-                    env.RELEASE_VERSION = sh(
+                    def versionOutput = sh(
                         script: """
                             chmod +x jenkins/scripts/calculate-semantic-version.sh
                             jenkins/scripts/calculate-semantic-version.sh "${env.BASE_RELEASE_VERSION}"
                         """,
                         returnStdout: true
                     ).trim()
+                    def versionLines = versionOutput.readLines()
+                    env.RELEASE_VERSION = versionLines ? versionLines.last().trim() : env.BASE_RELEASE_VERSION
                     
                     echo "========================================="
                     echo "Production Release Pipeline"
@@ -118,6 +120,15 @@ pipeline {
             }
         }
         
+        stage('Publish Coverage Reports') {
+            steps {
+                script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    commonFunctions.publishJavaCoverageReports(env.CHANGED_SERVICES)
+                }
+            }
+        }
+        
         stage('Publish to Registry') {
             steps {
                 unstash 'workspace'
@@ -174,116 +185,54 @@ pipeline {
         
         stage('Validate in Staging') {
             stages {
-                stage('Deploy to Staging') {
-                    steps {
-                        unstash 'workspace'
-                        withEnv(["KCFG=${env.STAGING_KUBE_CONFIG_PATH}"]) {
-                            script {
-                                def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                                echo "Pre-production validation: Deploying to staging..."
-                                commonFunctions.deployToKubernetes(
-                                    'staging',
-                                    env.K8S_NAMESPACE_STAGING,
-                                    env.REGISTRY,
-                                    env.IMAGE_TAG,
-                                    env.CHANGED_SERVICES
-                                )
-                                env.STAGING_DEPLOYS = env.SUCCESSFUL_DEPLOYS
-                            }
-                        }
-                    }
-                }
-                
                 stage('Integration & E2E Tests') {
                     steps {
                         withEnv(["KCFG=${env.STAGING_KUBE_CONFIG_PATH}"]) {
                             script {
                                 def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                                echo "Running comprehensive test suite in staging..."
-                                
-                                // Get API Gateway URL
-                                env.STAGING_GATEWAY_IP = commonFunctions.getLoadBalancerIP('api-gateway', 'staging')
-                                env.API_GATEWAY_STAGING = "http://${env.STAGING_GATEWAY_IP}:8080"
-                                
-                                echo "Testing against: ${env.API_GATEWAY_STAGING}"
-                                
-                                // Run integration tests
-                                commonFunctions.runIntegrationTests(
-                                    env.K8S_NAMESPACE_STAGING, 
-                                    env.API_GATEWAY_STAGING
-                                )
-                                
-                                // Run E2E tests
-                                commonFunctions.runE2ETests(
-                                    env.K8S_NAMESPACE_STAGING, 
-                                    env.API_GATEWAY_STAGING
-                                )
+                                echo "Running all test suites..."
+                                env.API_GATEWAY_URL = commonFunctions.getLoadBalancerIP('api-gateway', 'staging')
+
+                                echo "API Gateway URL: ${env.API_GATEWAY_URL}"
+
+                                commonFunctions.runAllTests(env.K8S_NAMESPACE_STAGING, env.CHANGED_SERVICES)
                             }
                         }
                     }
                     post {
                         always {
-                            // Publish test reports
-                            publishHTML([
-                                allowMissing: true,
-                                reportDir: 'tests',
-                                reportFiles: 'integration-report.html',
-                                reportName: 'Integration Test Report',
-                                keepAll: true,
-                                alwaysLinkToLastBuild: true
-                            ])
-                            publishHTML([
-                                allowMissing: true,
-                                reportDir: 'tests',
-                                reportFiles: 'e2e-report.html',
-                                reportName: 'E2E Test Report',
-                                keepAll: true,
-                                alwaysLinkToLastBuild: true
-                            ])
-                            archiveArtifacts artifacts: 'tests/*-report.html,tests/*-report.json', 
-                                             fingerprint: true, 
-                                             allowEmptyArchive: true
-                        }
-                    }
-                }
-                
-                stage('Performance Tests') {
-                    steps {
-                        withEnv(["KCFG=${env.STAGING_KUBE_CONFIG_PATH}"]) {
                             script {
                                 def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                                echo "Running performance tests with production-like load..."
                                 
-                                env.API_GATEWAY_STAGING = commonFunctions.getLoadBalancerIP('api-gateway', 'staging')
-                                env.API_GATEWAY_STAGING = "http://${env.API_GATEWAY_STAGING}:8080"
+                                // Publish test reports
+                                publishHTML([
+                                    allowMissing: true,
+                                    reportDir: 'tests',
+                                    reportFiles: 'integration-report.html',
+                                    reportName: 'Integration Test Report',
+                                    keepAll: true,
+                                    alwaysLinkToLastBuild: true
+                                ])
+                                publishHTML([
+                                    allowMissing: true,
+                                    reportDir: 'tests',
+                                    reportFiles: 'e2e-report.html',
+                                    reportName: 'E2E Test Report',
+                                    keepAll: true,
+                                    alwaysLinkToLastBuild: true
+                                ])
                                 
-                                echo "Testing against: ${env.API_GATEWAY_STAGING}"
+                                // Publish coverage reports
+                                commonFunctions.publishPythonCoverageReports()
                                 
-                                // Run performance tests with higher load for production validation
-                                commonFunctions.runPerformanceTests(
-                                    env.K8S_NAMESPACE_STAGING, 
-                                    env.API_GATEWAY_STAGING,
-                                    '100',  // users
-                                    '20',   // spawn rate
-                                    '120s'  // 2 minutes (ajustado de 10 minutos)
-                                )
+                                archiveArtifacts artifacts: 'tests/*-report.html,tests/*-report.json', 
+                                                 fingerprint: true, 
+                                                 allowEmptyArchive: true
+                                
+                                archiveArtifacts artifacts: 'tests/performance*.csv,tests/performance-report.html', 
+                                                fingerprint: true, 
+                                                allowEmptyArchive: true
                             }
-                        }
-                    }
-                    post {
-                        always {
-                            // Publish performance report
-                            publishHTML([
-                                allowMissing: true,
-                                reportDir: 'tests',
-                                reportFiles: 'performance-report.html',
-                                reportName: 'Performance Test Report',
-                                keepAll: true,
-                                alwaysLinkToLastBuild: true
-                            ])
-                            archiveArtifacts artifacts: 'tests/performance*.csv,tests/performance-report.html', 
-                                             fingerprint: true, 
-                                             allowEmptyArchive: true
                         }
                     }
                 }

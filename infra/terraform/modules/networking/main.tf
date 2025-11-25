@@ -110,16 +110,18 @@ resource "azurerm_subnet" "private" {
 }
 
 resource "azurerm_subnet_network_security_group_association" "public" {
-  for_each = azurerm_subnet.public
+  for_each = var.public_subnets
 
-  subnet_id                 = each.value.id
+  subnet_id                 = azurerm_subnet.public[each.key].id
   network_security_group_id = azurerm_network_security_group.public.id
+  depends_on                = [time_sleep.subnets_ready]
 }
 
 resource "azurerm_subnet_network_security_group_association" "private" {
-  for_each = azurerm_subnet.private
+  for_each = var.private_subnets
 
-  subnet_id                 = each.value.id
+  subnet_id                 = azurerm_subnet.private[each.key].id
   network_security_group_id = azurerm_network_security_group.private.id
+  depends_on                = [time_sleep.subnets_ready]
 }
 

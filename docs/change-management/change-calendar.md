@@ -5,6 +5,7 @@
 | Date & Time (UTC) | Change ID / RFC | Description | Owner / Backup | Environment | Status | Rollback Verified | Links |
 |-------------------|-----------------|-------------|----------------|-------------|--------|-------------------|-------|
 | 2025-11-24 15:00-16:00 | RFC-2025-11 | Deploy `user-service` hotfix for pricing bug | A. Mantilla / J. Doe | staging | **Planned** | Yes (staging) | Jenkins stage #112 |
+| 2025-11-25 16:00-17:00 | RFC-2025-13 | Move prod AKS/Terraform baseline to `centralus` to avoid vCPU quota overlap with staging in `eastus2` | Release Mgr / SRE on-call | prod | **Planned** | Yes (apply/destroy plan) | Jenkins prod pipeline #5 |
 | 2025-11-25 18:00-19:00 | RFC-2025-12 | Production rollout `v0.7.0` (checkout revamp) | Release Mgr / SRE on-call | prod | **Approved** | Yes (auto rollback) | RFC doc, release #0.7.0 |
 | … | … | … | … | … | … | … | … |
 

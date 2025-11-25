@@ -71,6 +71,8 @@ module "aks" {
   docker_bridge_cidr   = var.aks_docker_bridge_cidr
   outbound_type        = var.aks_outbound_type
   tags                 = local.base_tags
+
+  depends_on = [module.networking]
 }
 
 
