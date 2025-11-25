@@ -315,6 +315,8 @@ def runAllTests(namespace, changedServices) {
             runPerformanceTests(namespace, apiGatewayUrl, performanceServices)
         }
     ]
+
+    parallel testStages
     
     // Security tests run after other tests (sequential to avoid resource conflicts)
     stage('Security Tests') {
