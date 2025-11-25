@@ -3,8 +3,16 @@ Performance Tests using Locust
 """
 import time
 import random
+import os
 from datetime import datetime
 from locust import HttpUser, task, between, events
+
+ENABLED_SERVICES = {s.strip() for s in os.getenv("ENABLED_SERVICES", "").split(",") if s.strip()}
+
+
+def service_enabled(service_name):
+    """Return True if the service is enabled (or if filtering is disabled)."""
+    return not ENABLED_SERVICES or service_name in ENABLED_SERVICES
 
 class EcommerceUser(HttpUser):
     """Simulates a user interacting with the e-commerce platform"""
@@ -22,6 +30,8 @@ class EcommerceUser(HttpUser):
     @task(5)
     def view_products(self):
         """View product catalog (most common action)"""
+        if not service_enabled('product-service'):
+            return
         with self.client.get(
             "/product-service/api/products",
             catch_response=True,
@@ -43,6 +53,8 @@ class EcommerceUser(HttpUser):
     @task(3)
     def view_product_details(self):
         """View specific product details"""
+        if not service_enabled('product-service'):
+            return
         if self.product_ids:
             product_id = random.choice(self.product_ids)
             self.client.get(
@@ -56,11 +68,15 @@ class EcommerceUser(HttpUser):
     @task(2)
     def view_categories(self):
         """View product categories"""
+        if not service_enabled('product-service'):
+            return
         self.client.get("/product-service/api/categories", name="GET /categories")
     
     @task(2)
     def create_user(self):
         """Create a new user (registration)"""
+        if not service_enabled('user-service'):
+            return
         user_id = random.randint(1000, 9999)
         user_data = {
             "userId": user_id,
@@ -97,11 +113,15 @@ class EcommerceUser(HttpUser):
     @task(2)
     def view_users(self):
         """View all users"""
+        if not service_enabled('user-service'):
+            return
         self.client.get("/user-service/api/users", name="GET /users")
     
     @task(1)
     def view_user_profile(self):
         """View specific user profile"""
+        if not service_enabled('user-service'):
+            return
         if self.user_id:
             self.client.get(
                 f"/user-service/api/users/{self.user_id}",
@@ -111,11 +131,15 @@ class EcommerceUser(HttpUser):
     @task(1)
     def view_favourites(self):
         """View all favourites"""
+        if not service_enabled('favourite-service'):
+            return
         self.client.get("/favourite-service/api/favourites", name="GET /favourites")
     
     @task(1)
     def add_to_favourites(self):
         """Add product to favourites"""
+        if not (service_enabled('favourite-service') and service_enabled('user-service') and service_enabled('product-service')):
+            return
         if self.user_id and self.product_ids:
             fav_id = random.randint(6000, 9999)
             current_datetime = datetime.now().strftime("%d-%m-%Y__%H:%M:%S:000000")
@@ -139,6 +163,8 @@ class EcommerceUser(HttpUser):
     @task(3)
     def create_cart(self):
         """Create a shopping cart"""
+        if not service_enabled('order-service'):
+            return
         if not self.user_id:
             return  # Need user first
         
@@ -167,11 +193,15 @@ class EcommerceUser(HttpUser):
     @task(2)
     def view_carts(self):
         """View all carts"""
+        if not service_enabled('order-service'):
+            return
         self.client.get("/order-service/api/carts", name="GET /carts")
     
     @task(2)
     def view_cart_by_id(self):
         """View specific cart"""
+        if not service_enabled('order-service'):
+            return
         if self.cart_id:
             self.client.get(
                 f"/order-service/api/carts/{self.cart_id}",
@@ -181,6 +211,8 @@ class EcommerceUser(HttpUser):
     @task(3)
     def create_order(self):
         """Create an order from cart"""
+        if not service_enabled('order-service'):
+            return
         if not self.cart_id:
             return  # Need cart first
         
@@ -213,11 +245,15 @@ class EcommerceUser(HttpUser):
     @task(2)
     def view_orders(self):
         """View all orders"""
+        if not service_enabled('order-service'):
+            return
         self.client.get("/order-service/api/orders", name="GET /orders")
     
     @task(1)
     def view_order_by_id(self):
         """View specific order"""
+        if not service_enabled('order-service'):
+            return
         if self.order_id:
             self.client.get(
                 f"/order-service/api/orders/{self.order_id}",
@@ -231,6 +267,8 @@ class EcommerceUser(HttpUser):
     @task(3)
     def create_payment(self):
         """Create a payment for an order"""
+        if not service_enabled('payment-service'):
+            return
         if not self.order_id:
             return  # Need order first
         
@@ -261,11 +299,15 @@ class EcommerceUser(HttpUser):
     @task(2)
     def view_payments(self):
         """View all payments"""
+        if not service_enabled('payment-service'):
+            return
         self.client.get("/payment-service/api/payments", name="GET /payments")
     
     @task(1)
     def view_payment_by_id(self):
         """View specific payment"""
+        if not service_enabled('payment-service'):
+            return
         if self.payment_id:
             self.client.get(
                 f"/payment-service/api/payments/{self.payment_id}",
@@ -279,6 +321,8 @@ class EcommerceUser(HttpUser):
     @task(2)
     def create_order_item(self):
         """Create an order item (shipping)"""
+        if not (service_enabled('shipping-service') and service_enabled('order-service')):
+            return
         if not self.order_id or not self.product_ids:
             return  # Need order and products first
         
@@ -309,11 +353,15 @@ class EcommerceUser(HttpUser):
     @task(2)
     def view_order_items(self):
         """View all order items"""
+        if not service_enabled('shipping-service'):
+            return
         self.client.get("/shipping-service/api/shippings", name="GET /shippings")
     
     @task(1)
     def view_order_item_by_id(self):
         """View specific order item"""
+        if not service_enabled('shipping-service'):
+            return
         if self.order_id and self.product_ids:
             product_id = random.choice(self.product_ids)
             self.client.get(
@@ -328,6 +376,9 @@ class EcommerceUser(HttpUser):
     @task(2)
     def complete_purchase_flow(self):
         """E2E: Complete purchase flow (Product → Cart → Order → Payment → Shipping)"""
+        required = ['user-service', 'product-service', 'order-service', 'payment-service', 'shipping-service']
+        if not all(service_enabled(service) for service in required):
+            return
         if not self.user_id or not self.product_ids:
             return  # Need user and products first
         
@@ -425,6 +476,9 @@ class EcommerceUser(HttpUser):
     @task(1)
     def checkout_flow(self):
         """E2E: Checkout flow (Cart Review → Order → Payment → Confirmation)"""
+        required = ['user-service', 'order-service', 'payment-service']
+        if not all(service_enabled(service) for service in required):
+            return
         if not self.user_id or not self.product_ids:
             return
         
@@ -498,6 +552,8 @@ class EcommerceUser(HttpUser):
     @task(1)
     def health_check(self):
         """Check API Gateway health"""
+        if not service_enabled('api-gateway'):
+            return
         self.client.get("/actuator/health", name="GET /health")
 
 
@@ -530,7 +586,10 @@ def on_test_start(environment, **kwargs):
     print("=" * 60)
     print("🚀 Starting E-commerce Performance Tests")
     print(f"   Target: {environment.host}")
-    print("   Services: product, user, favourite, order, payment, shipping")
+    if ENABLED_SERVICES:
+        print(f"   Services: {', '.join(sorted(ENABLED_SERVICES))}")
+    else:
+        print("   Services: ALL")
     print("   E2E Flows: Complete Purchase, Checkout")
     print("=" * 60)
 

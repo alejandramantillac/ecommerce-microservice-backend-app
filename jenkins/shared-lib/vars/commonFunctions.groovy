@@ -281,6 +281,7 @@ def runAllTests(namespace, changedServices) {
 
     def integrationTests = []
     def e2eTests = []
+    def performanceServices = ''
 
     def serviceList = changedServices.split(',')
     for (serviceName in serviceList) {
@@ -292,6 +293,7 @@ def runAllTests(namespace, changedServices) {
         if (serviceConfig?.testsE2E) {
             e2eTests.addAll(serviceConfig.testsE2E)
         }
+        performanceServices += service + ','
     }
     
     // Remove duplicates from e2eTests
@@ -310,7 +312,7 @@ def runAllTests(namespace, changedServices) {
             runE2ETests(namespace, apiGatewayUrl, e2eTests)
         },
         'Performance Tests': {
-            runPerformanceTests(namespace, apiGatewayUrl)
+            runPerformanceTests(namespace, apiGatewayUrl, performanceServices)
         }
     ]
 
@@ -338,11 +340,11 @@ def runE2ETests(namespace, apiGatewayUrl, e2eTests) {
     """
 }
 
-def runPerformanceTests(namespace, apiGatewayUrl, users = '50', spawnRate = '10', runTime = '300s') {
+def runPerformanceTests(namespace, apiGatewayUrl, services='', users = '50', spawnRate = '10', runTime = '300s') {
     sh """
         chmod +x jenkins/tests/performance-tests.sh
         export KCFG="\${KCFG}"
-        jenkins/tests/performance-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}"
+        jenkins/tests/performance-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}" "${services}"
     """
     
     archiveArtifacts artifacts: 'performance-report.html,performance-data*.csv', 
