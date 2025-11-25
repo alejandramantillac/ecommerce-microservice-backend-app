@@ -158,6 +158,40 @@ pipeline {
                 }
             }
         }
+
+        stage('Deploy Monitoring Stack') {
+            steps {
+                unstash 'workspace'
+                unstash 'kubeconfig'
+                withEnv(["KCFG=${env.KUBE_CONFIG_PATH}"]) {
+                    script {
+                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                        echo "Deploying monitoring stack (Prometheus, Grafana, Alertmanager)..."
+                        commonFunctions.deployMonitoringStack(
+                            env.K8S_NAMESPACE,
+                            env.TARGET_ENVIRONMENT,
+                            'NodePort'  // Use NodePort for staging
+                        )
+                    }
+                }
+            }
+        }
+
+        stage('Deploy ELK Stack') {
+            steps {
+                withEnv(["KCFG=${env.KUBE_CONFIG_PATH}"]) {
+                    script {
+                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                        echo "Deploying ELK stack (Elasticsearch, Logstash, Kibana, Filebeat)..."
+                        commonFunctions.deployELKStack(
+                            env.K8S_NAMESPACE,
+                            env.TARGET_ENVIRONMENT,
+                            'NodePort'  // Use NodePort for staging
+                        )
+                    }
+                }
+            }
+        }
         
         stage('Deploy to Staging') {
             steps {

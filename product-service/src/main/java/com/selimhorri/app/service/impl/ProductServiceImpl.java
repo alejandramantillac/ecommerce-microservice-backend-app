@@ -10,6 +10,7 @@ import org.springframework.stereotype.Service;
 import com.selimhorri.app.dto.ProductDto;
 import com.selimhorri.app.exception.wrapper.ProductNotFoundException;
 import com.selimhorri.app.helper.ProductMappingHelper;
+import com.selimhorri.app.metrics.BusinessMetrics;
 import com.selimhorri.app.repository.ProductRepository;
 import com.selimhorri.app.service.ProductService;
 
@@ -23,10 +24,13 @@ import lombok.extern.slf4j.Slf4j;
 public class ProductServiceImpl implements ProductService {
 	
 	private final ProductRepository productRepository;
+	private final BusinessMetrics businessMetrics;
 	
 	@Override
 	public List<ProductDto> findAll() {
 		log.info("*** ProductDto List, service; fetch all products *");
+		// Record search metric
+		this.businessMetrics.recordProductSearched();
 		return this.productRepository.findAll()
 				.stream()
 					.map(ProductMappingHelper::map)
@@ -37,9 +41,14 @@ public class ProductServiceImpl implements ProductService {
 	@Override
 	public ProductDto findById(final Integer productId) {
 		log.info("*** ProductDto, service; fetch product by id *");
-		return this.productRepository.findById(productId)
+		ProductDto product = this.productRepository.findById(productId)
 				.map(ProductMappingHelper::map)
 				.orElseThrow(() -> new ProductNotFoundException(String.format("Product with id: %d not found", productId)));
+		
+		// Record view metric
+		this.businessMetrics.recordProductViewed();
+		
+		return product;
 	}
 	
 	@Override

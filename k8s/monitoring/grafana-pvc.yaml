@@ -1,0 +1,20 @@
+# PersistentVolumeClaim for Grafana
+# Provides persistent storage for Grafana dashboards, datasources, and user data
+# Apply: kubectl apply -f k8s/grafana-pvc.yaml
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: grafana-data
+  namespace: ${NAMESPACE}
+  labels:
+    app: grafana
+    component: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 2Gi  # Optimized storage
+  # storageClassName: standard  # Uncomment and specify if using specific storage class
+

@@ -190,6 +190,210 @@ def getServicesList() {
             ],
             healthPath: '/health',
             replicas: [dev: 1, staging: 1, prod: 1]
+        ],
+
+        [
+            name: 'prometheus',
+            port: 9090,
+            type: 'monitoring',
+            path: 'prometheus',
+            external: true,
+            exposure: [
+                dev: [
+                    type: 'NodePort',
+                    nodePort: 30909
+                ],
+                staging: [
+                    type: 'NodePort',
+                    nodePort: 30909
+                ],
+                prod: [
+                    type: 'LoadBalancer',
+                    nodePort: 30909
+                ]
+            ],
+            resources: [
+                memRequest: '512Mi',
+                memLimit: '2Gi',
+                cpuRequest: '250m',
+                cpuLimit: '1000m'
+            ],
+            healthPath: '/-/healthy',
+            replicas: [dev: 1, staging: 1, prod: 1]
+        ],
+
+        [
+            name: 'grafana',
+            port: 3000,
+            type: 'monitoring',
+            path: 'grafana',
+            external: true,
+            exposure: [
+                dev: [
+                    type: 'NodePort',
+                    nodePort: 30300
+                ],
+                staging: [
+                    type: 'NodePort',
+                    nodePort: 30300
+                ],
+                prod: [
+                    type: 'LoadBalancer',
+                    nodePort: 30300
+                ]
+            ],
+            resources: [
+                memRequest: '256Mi',
+                memLimit: '512Mi',
+                cpuRequest: '100m',
+                cpuLimit: '500m'
+            ],
+            healthPath: '/api/health',
+            replicas: [dev: 1, staging: 1, prod: 1]
+        ],
+
+        [
+            name: 'alertmanager',
+            port: 9093,
+            type: 'monitoring',
+            path: 'alertmanager',
+            external: true,
+            exposure: [
+                dev: [
+                    type: 'NodePort',
+                    nodePort: 30933
+                ],
+                staging: [
+                    type: 'NodePort',
+                    nodePort: 30933
+                ],
+                prod: [
+                    type: 'LoadBalancer',
+                    nodePort: 30933
+                ]
+            ],
+            resources: [
+                memRequest: '128Mi',
+                memLimit: '256Mi',
+                cpuRequest: '100m',
+                cpuLimit: '200m'
+            ],
+            healthPath: '/-/healthy',
+            replicas: [dev: 1, staging: 1, prod: 1]
+        ],
+
+        [
+            name: 'elasticsearch',
+            port: 9200,
+            type: 'logging',
+            path: 'elasticsearch',
+            external: true,
+            exposure: [
+                dev: [
+                    type: 'NodePort',
+                    nodePort: 30920
+                ],
+                staging: [
+                    type: 'NodePort',
+                    nodePort: 30920
+                ],
+                prod: [
+                    type: 'LoadBalancer',
+                    nodePort: 30920
+                ]
+            ],
+            resources: [
+                memRequest: '2Gi',
+                memLimit: '2Gi',
+                cpuRequest: '1000m',
+                cpuLimit: '1000m'
+            ],
+            healthPath: '/_cluster/health',
+            replicas: [dev: 1, staging: 1, prod: 1]
+        ],
+
+        [
+            name: 'logstash',
+            port: 5044,
+            type: 'logging',
+            path: 'logstash',
+            external: false,
+            exposure: [
+                dev: [
+                    type: 'ClusterIP'
+                ],
+                staging: [
+                    type: 'ClusterIP'
+                ],
+                prod: [
+                    type: 'ClusterIP'
+                ]
+            ],
+            resources: [
+                memRequest: '1Gi',
+                memLimit: '2Gi',
+                cpuRequest: '500m',
+                cpuLimit: '1000m'
+            ],
+            healthPath: '/_node/pipelines',
+            replicas: [dev: 1, staging: 1, prod: 1]
+        ],
+
+        [
+            name: 'kibana',
+            port: 5601,
+            type: 'logging',
+            path: 'kibana',
+            external: true,
+            exposure: [
+                dev: [
+                    type: 'NodePort',
+                    nodePort: 30561
+                ],
+                staging: [
+                    type: 'NodePort',
+                    nodePort: 30561
+                ],
+                prod: [
+                    type: 'LoadBalancer',
+                    nodePort: 30561
+                ]
+            ],
+            resources: [
+                memRequest: '1Gi',
+                memLimit: '2Gi',
+                cpuRequest: '500m',
+                cpuLimit: '1000m'
+            ],
+            healthPath: '/api/status',
+            replicas: [dev: 1, staging: 1, prod: 1]
+        ],
+
+        [
+            name: 'filebeat',
+            port: 0,
+            type: 'logging',
+            path: 'filebeat',
+            external: false,
+            exposure: [
+                dev: [
+                    type: 'ClusterIP'
+                ],
+                staging: [
+                    type: 'ClusterIP'
+                ],
+                prod: [
+                    type: 'ClusterIP'
+                ]
+            ],
+            resources: [
+                memRequest: '100Mi',
+                memLimit: '200Mi',
+                cpuRequest: '100m',
+                cpuLimit: '200m'
+            ],
+            healthPath: '',
+            replicas: [dev: 1, staging: 1, prod: 1]  # DaemonSet: 1 per node
         ]
     ]
 }

@@ -1,0 +1,22 @@
+# PersistentVolumeClaim for Prometheus
+# Provides persistent storage for Prometheus metrics data
+# Apply: kubectl apply -f k8s/prometheus-pvc.yaml
+
+apiVersion: v1
+kind: PersistentVolumeClaim
+metadata:
+  name: prometheus-data
+  namespace: ${NAMESPACE}
+  labels:
+    app: prometheus
+    component: monitoring
+spec:
+  accessModes:
+    - ReadWriteOnce
+  resources:
+    requests:
+      storage: 8Gi  # Optimized for 7 days retention
+  # storageClassName: standard  # Uncomment and specify if using specific storage class
+
+
+

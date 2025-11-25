@@ -1,0 +1,130 @@
+# Prometheus Alerting Rules
+# Defines alert conditions and thresholds
+# Apply: kubectl apply -f k8s/prometheus-alerts-configmap.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: prometheus-alerts
+  namespace: ${NAMESPACE}
+  labels:
+    app: prometheus
+    component: monitoring
+data:
+  alerts.yml: |
+    groups:
+      - name: service_health
+        interval: 60s
+        rules:
+          - alert: ServiceDown
+            expr: up{job=~"(api-gateway|user-service|product-service|order-service|payment-service|shipping-service|favourite-service|proxy-client|service-discovery)"} == 0
+            for: 1m
+            labels:
+              severity: critical
+              component: service
+            annotations:
+              summary: "Service {{ $labels.job }} is down"
+              description: "Service {{ $labels.job }} has been down for more than 1 minute"
+      
+      - name: error_rate
+        interval: 60s
+        rules:
+          - alert: HighErrorRate
+            expr: |
+              (
+                sum(rate(http_server_requests_seconds_count{status=~"5.."}[5m])) by (service)
+                /
+                sum(rate(http_server_requests_seconds_count[5m])) by (service)
+              ) * 100 > 5
+            for: 3m
+            labels:
+              severity: critical
+              component: service
+            annotations:
+              summary: "High error rate for {{ $labels.service }}"
+              description: "Error rate for {{ $labels.service }} is {{ $value }}% (threshold: 5%)"
+      
+      - name: latency
+        interval: 60s
+        rules:
+          - alert: HighLatency
+            expr: |
+              histogram_quantile(0.95, 
+                sum(rate(http_server_requests_seconds_bucket[5m])) by (le, service)
+              ) > 1
+            for: 5m
+            labels:
+              severity: warning
+              component: service
+            annotations:
+              summary: "High latency for {{ $labels.service }}"
+              description: "p95 latency for {{ $labels.service }} is {{ $value }}s (threshold: 1s)"
+      
+      - name: resource_usage
+        interval: 60s
+        rules:
+          - alert: HighCPUUsage
+            expr: |
+              sum(rate(process_cpu_usage[5m])) by (service) * 100 > 80
+            for: 3m
+            labels:
+              severity: warning
+              component: resource
+            annotations:
+              summary: "High CPU usage for {{ $labels.service }}"
+              description: "CPU usage for {{ $labels.service }} is {{ $value }}% (threshold: 80%)"
+          
+          - alert: HighMemoryUsage
+            expr: |
+              (sum(jvm_memory_used_bytes{area="heap"}) by (service) 
+               / sum(jvm_memory_max_bytes{area="heap"}) by (service)) * 100 > 80
+            for: 3m
+            labels:
+              severity: warning
+              component: resource
+            annotations:
+              summary: "High memory usage for {{ $labels.service }}"
+              description: "Memory usage for {{ $labels.service }} is {{ $value }}% (threshold: 80%)"
+      
+      - name: infrastructure
+        interval: 60s
+        rules:
+          - alert: PodCrashLooping
+            expr: |
+              rate(kube_pod_container_status_restarts_total[15m]) > 0
+            for: 3m
+            labels:
+              severity: critical
+              component: infrastructure
+            annotations:
+              summary: "Pod {{ $labels.pod }} is crash looping"
+              description: "Pod {{ $labels.pod }} in namespace {{ $labels.namespace }} is restarting repeatedly"
+      
+      - name: resilience
+        interval: 60s
+        rules:
+          - alert: CircuitBreakerOpen
+            expr: |
+              resilience4j_circuitbreaker_state{state="OPEN"} == 1
+            for: 1m
+            labels:
+              severity: critical
+              component: resilience
+            annotations:
+              summary: "Circuit breaker open for {{ $labels.name }}"
+              description: "Circuit breaker {{ $labels.name }} has been open for more than 1 minute"
+      
+      - name: traffic
+        interval: 60s
+        rules:
+          - alert: HighRequestRate
+            expr: |
+              sum(rate(http_server_requests_seconds_count[5m])) by (service) > 1000
+            for: 3m
+            labels:
+              severity: warning
+              component: traffic
+            annotations:
+              summary: "High request rate for {{ $labels.service }}"
+              description: "Request rate for {{ $labels.service }} is {{ $value }} req/s (threshold: 1000 req/s)"
+

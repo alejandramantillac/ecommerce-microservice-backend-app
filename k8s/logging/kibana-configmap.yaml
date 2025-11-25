@@ -1,0 +1,53 @@
+# Kibana Configuration
+# Configures Kibana connection to Elasticsearch
+# Apply: kubectl apply -f k8s/kibana-configmap.yaml
+
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: kibana-config
+  namespace: ${NAMESPACE}
+  labels:
+    app: kibana
+    component: logging
+data:
+  kibana.yml: |
+    server.name: kibana
+    server.host: "0.0.0.0"
+    server.port: 5601
+    
+    # Elasticsearch connection
+    elasticsearch.hosts: ["http://elasticsearch:9200"]
+    elasticsearch.username: ""  # Empty for development (security disabled)
+    elasticsearch.password: ""  # Empty for development (security disabled)
+    
+    # Monitoring
+    monitoring.ui.container.elasticsearch.enabled: true
+    
+    # Logging
+    logging.appenders:
+      file:
+        type: file
+        fileName: /usr/share/kibana/logs/kibana.log
+        layout:
+          type: json
+    logging.root.appenders:
+      - default
+      - file
+    
+    # Index patterns (will be created manually or via API)
+    # Default index pattern
+    kibana.defaultAppId: "discover"
+    
+    # Security (disabled for development)
+    xpack.security.enabled: false
+    xpack.encryptedSavedObjects.encryptionKey: "min-32-char-long-encryption-key-for-dev-only"
+    
+    # Features (optimized - disable unused features)
+    xpack.reporting.enabled: false
+    xpack.canvas.enabled: false
+    xpack.maps.enabled: false
+    xpack.ml.enabled: false
+    xpack.graph.enabled: false
+    xpack.monitoring.enabled: true
+

@@ -9,10 +9,12 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.client.RestTemplate;
 
 import com.selimhorri.app.constant.AppConstant;
+import com.selimhorri.app.domain.PaymentStatus;
 import com.selimhorri.app.dto.OrderDto;
 import com.selimhorri.app.dto.PaymentDto;
 import com.selimhorri.app.exception.wrapper.PaymentNotFoundException;
 import com.selimhorri.app.helper.PaymentMappingHelper;
+import com.selimhorri.app.metrics.BusinessMetrics;
 import com.selimhorri.app.repository.PaymentRepository;
 import com.selimhorri.app.service.PaymentService;
 
@@ -27,6 +29,7 @@ public class PaymentServiceImpl implements PaymentService {
 	
 	private final PaymentRepository paymentRepository;
 	private final RestTemplate restTemplate;
+	private final BusinessMetrics businessMetrics;
 	
 	@Override
 	public List<PaymentDto> findAll() {
@@ -59,15 +62,35 @@ public class PaymentServiceImpl implements PaymentService {
 	@Override
 	public PaymentDto save(final PaymentDto paymentDto) {
 		log.info("*** PaymentDto, service; save payment *");
-		return PaymentMappingHelper.map(this.paymentRepository
+		PaymentDto savedPayment = PaymentMappingHelper.map(this.paymentRepository
 				.save(PaymentMappingHelper.map(paymentDto)));
+		
+		// Record business metrics
+		this.businessMetrics.recordPaymentProcessed(0.0); // Amount would come from order if available
+		
+		if (savedPayment.getPaymentStatus() == PaymentStatus.COMPLETED) {
+			this.businessMetrics.recordPaymentSuccessful();
+		} else if (savedPayment.getPaymentStatus() == PaymentStatus.NOT_STARTED) {
+			this.businessMetrics.recordPaymentFailed();
+		}
+		
+		return savedPayment;
 	}
 	
 	@Override
 	public PaymentDto update(final PaymentDto paymentDto) {
 		log.info("*** PaymentDto, service; update payment *");
-		return PaymentMappingHelper.map(this.paymentRepository
+		PaymentDto updatedPayment = PaymentMappingHelper.map(this.paymentRepository
 				.save(PaymentMappingHelper.map(paymentDto)));
+		
+		// Record business metrics for status changes
+		if (updatedPayment.getPaymentStatus() == PaymentStatus.COMPLETED) {
+			this.businessMetrics.recordPaymentSuccessful();
+		} else if (updatedPayment.getPaymentStatus() == PaymentStatus.NOT_STARTED) {
+			this.businessMetrics.recordPaymentFailed();
+		}
+		
+		return updatedPayment;
 	}
 	
 	@Override
