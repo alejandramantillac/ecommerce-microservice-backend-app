@@ -110,7 +110,7 @@ substitute_vars() {
 # Step 1: Deploy RBAC
 echo ""
 echo "Step 1: Deploying RBAC (ServiceAccount, ClusterRole, ClusterRoleBinding)..."
-if substitute_vars k8s/filebeat-rbac.yaml | kubectl apply -f -; then
+if substitute_vars k8s/logging/filebeat-rbac.yaml | kubectl apply -f -; then
     echo "✓ RBAC deployed"
 else
     echo "✗ Failed to deploy RBAC"
@@ -120,7 +120,7 @@ fi
 # Step 2: Deploy ConfigMap
 echo ""
 echo "Step 2: Deploying ConfigMap..."
-if substitute_vars k8s/filebeat-configmap.yaml | kubectl apply -f -; then
+if substitute_vars k8s/logging/filebeat-configmap.yaml | kubectl apply -f -; then
     echo "✓ ConfigMap deployed"
 else
     echo "✗ Failed to deploy ConfigMap"
@@ -130,7 +130,7 @@ fi
 # Step 3: Deploy DaemonSet
 echo ""
 echo "Step 3: Deploying Filebeat DaemonSet..."
-if substitute_vars k8s/filebeat-daemonset.yaml | kubectl apply -f -; then
+if substitute_vars k8s/logging/filebeat-daemonset.yaml | kubectl apply -f -; then
     echo "✓ DaemonSet deployed"
 else
     echo "✗ Failed to deploy DaemonSet"

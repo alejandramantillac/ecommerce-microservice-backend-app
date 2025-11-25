@@ -1,22 +1,22 @@
 #!/bin/bash
-# Script to deploy Kibana to Kubernetes
-# Usage: ./jenkins/scripts/deploy-kibana.sh <namespace> <environment> [service-type] [node-port]
+# Script to deploy Alertmanager to Kubernetes
+# Usage: ./jenkins/scripts/deploy-alertmanager.sh <namespace> <environment> [service-type] [node-port]
 
 set -e
 
 NAMESPACE="${1:-staging}"
 ENVIRONMENT="${2:-staging}"
 SERVICE_TYPE="${3:-NodePort}"
-NODE_PORT="${4:-30561}"
+NODE_PORT="${4:-30933}"
 
 if [ -z "$NAMESPACE" ] || [ -z "$ENVIRONMENT" ]; then
     echo "Usage: $0 <namespace> <environment> [service-type] [node-port]"
-    echo "Example: $0 staging staging NodePort 30561"
+    echo "Example: $0 staging staging NodePort 30933"
     exit 1
 fi
 
 echo "========================================="
-echo "Deploying Kibana to ${NAMESPACE}"
+echo "Deploying Alertmanager to ${NAMESPACE}"
 echo "Environment: ${ENVIRONMENT}"
 echo "Service Type: ${SERVICE_TYPE}"
 echo "Node Port: ${NODE_PORT}"
@@ -86,20 +86,6 @@ else
     echo "✓ Namespace exists"
 fi
 
-# Check if Elasticsearch is deployed
-echo ""
-echo "Checking if Elasticsearch is deployed..."
-if ! kubectl get svc elasticsearch -n "${NAMESPACE}" &> /dev/null; then
-    echo "Warning: Elasticsearch service not found in namespace ${NAMESPACE}"
-    echo "Kibana requires Elasticsearch to be deployed first."
-    echo "Please deploy Elasticsearch before deploying Kibana."
-    echo ""
-    echo "Deploy Elasticsearch with:"
-    echo "  ./jenkins/scripts/deploy-elasticsearch.sh ${NAMESPACE} ${ENVIRONMENT}"
-    exit 1
-fi
-echo "✓ Elasticsearch service found"
-
 # Function to substitute variables
 substitute_vars() {
     local file="$1"
@@ -109,7 +95,7 @@ substitute_vars() {
         # Replace basic variables
         local output=$(sed -e "s/\${NAMESPACE}/${NAMESPACE}/g" \
                            -e "s/\${ENVIRONMENT}/${ENVIRONMENT}/g" \
-                           -e "s/nodePort: 30561/nodePort: ${NODE_PORT}/g" \
+                           -e "s/nodePort: 30933/nodePort: ${NODE_PORT}/g" \
                            -e "s/type: NodePort/type: ${SERVICE_TYPE}/g" \
                            "$file")
         # Remove nodePort if service type is ClusterIP
@@ -121,36 +107,46 @@ substitute_vars() {
     fi
 }
 
-# Step 1: Deploy ConfigMap
+# Step 1: Deploy PVC
 echo ""
-echo "Step 1: Deploying ConfigMap..."
-if substitute_vars k8s/kibana-configmap.yaml | kubectl apply -f -; then
+echo "Step 1: Deploying PersistentVolumeClaim..."
+if substitute_vars k8s/monitoring/alertmanager-pvc.yaml | kubectl apply -f -; then
+    echo "✓ PVC deployed"
+else
+    echo "✗ Failed to deploy PVC"
+    exit 1
+fi
+
+# Step 2: Deploy ConfigMap
+echo ""
+echo "Step 2: Deploying ConfigMap..."
+if substitute_vars k8s/monitoring/alertmanager-configmap.yaml | kubectl apply -f -; then
     echo "✓ ConfigMap deployed"
 else
     echo "✗ Failed to deploy ConfigMap"
     exit 1
 fi
 
-# Step 2: Deploy Deployment and Service
+# Step 3: Deploy Deployment and Service
 echo ""
-echo "Step 2: Deploying Kibana Deployment and Service..."
-if substitute_vars k8s/kibana.yaml | kubectl apply -f -; then
+echo "Step 3: Deploying Alertmanager Deployment and Service..."
+if substitute_vars k8s/monitoring/alertmanager.yaml | kubectl apply -f -; then
     echo "✓ Deployment and Service deployed"
 else
     echo "✗ Failed to deploy Deployment and Service"
     exit 1
 fi
 
-# Step 3: Wait for deployment
+# Step 4: Wait for deployment
 echo ""
-echo "Step 3: Waiting for Kibana to be ready..."
-TIMEOUT=600
+echo "Step 4: Waiting for Alertmanager to be ready..."
+TIMEOUT=300
 ELAPSED=0
-INTERVAL=10
+INTERVAL=5
 
 while [ $ELAPSED -lt $TIMEOUT ]; do
-    if kubectl get deployment kibana -n "${NAMESPACE}" -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null | grep -q "True"; then
-        echo "✓ Kibana is ready"
+    if kubectl get deployment alertmanager -n "${NAMESPACE}" -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null | grep -q "True"; then
+        echo "✓ Alertmanager is ready"
         break
     fi
     echo "  Waiting... ($ELAPSED/$TIMEOUT seconds)"
@@ -161,26 +157,26 @@ done
 if [ $ELAPSED -ge $TIMEOUT ]; then
     echo "Warning: Deployment did not become available within $TIMEOUT seconds"
     echo "Checking pod status..."
-    kubectl get pods -n "${NAMESPACE}" -l app=kibana
+    kubectl get pods -n "${NAMESPACE}" -l app=alertmanager
     echo ""
     echo "Checking pod logs..."
-    POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=kibana -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=alertmanager -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
     if [ -n "$POD_NAME" ]; then
         echo "Pod: $POD_NAME"
         kubectl logs -n "${NAMESPACE}" "$POD_NAME" --tail=50
     fi
     echo ""
     echo "Note: Deployment may still be in progress. Check status with:"
-    echo "  kubectl get pods -n ${NAMESPACE} -l app=kibana"
+    echo "  kubectl get pods -n ${NAMESPACE} -l app=alertmanager"
     exit 1
 fi
 
-# Step 4: Verify deployment
+# Step 5: Verify deployment
 echo ""
-echo "Step 4: Verifying deployment..."
-POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=kibana -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+echo "Step 5: Verifying deployment..."
+POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=alertmanager -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 if [ -z "$POD_NAME" ]; then
-    echo "Error: Kibana pod not found"
+    echo "Error: Alertmanager pod not found"
     exit 1
 fi
 
@@ -198,29 +194,10 @@ if [ -n "$POD_STATUS" ]; then
     fi
 fi
 
-# Wait a bit more for Kibana to fully initialize
-echo ""
-echo "Waiting for Kibana to fully initialize..."
-sleep 60
-
-# Step 5: Verify Kibana status
-echo ""
-echo "Step 5: Verifying Kibana status..."
-POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=kibana -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
-if [ -n "$POD_NAME" ]; then
-    STATUS=$(kubectl exec -n "${NAMESPACE}" "$POD_NAME" -- curl -s http://localhost:5601/api/status 2>/dev/null || echo "")
-    if echo "$STATUS" | grep -q "status"; then
-        echo "✓ Kibana API is responding"
-    else
-        echo "Warning: Could not verify Kibana status"
-        echo "Response: $STATUS"
-    fi
-fi
-
 # Get service information
 echo ""
 echo "Service Information:"
-kubectl get svc kibana -n "${NAMESPACE}" || {
+kubectl get svc alertmanager -n "${NAMESPACE}" || {
     echo "Error: Service not found"
     exit 1
 }
@@ -230,17 +207,19 @@ echo ""
 if [ "$SERVICE_TYPE" = "LoadBalancer" ]; then
     echo "Waiting for LoadBalancer IP..."
     sleep 10
-    LB_IP=$(kubectl get svc kibana -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+    LB_IP=$(kubectl get svc alertmanager -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
     if [ -n "$LB_IP" ]; then
-        echo "✓ Kibana UI: http://${LB_IP}:5601"
+        echo "✓ Alertmanager UI: http://${LB_IP}:9093"
+        echo "✓ Alerts: http://${LB_IP}:9093/#/alerts"
     else
-        LB_HOST=$(kubectl get svc kibana -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+        LB_HOST=$(kubectl get svc alertmanager -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
         if [ -n "$LB_HOST" ]; then
-            echo "✓ Kibana UI: http://${LB_HOST}:5601"
+            echo "✓ Alertmanager UI: http://${LB_HOST}:9093"
+            echo "✓ Alerts: http://${LB_HOST}:9093/#/alerts"
         else
             echo "⚠ LoadBalancer IP not yet assigned. Check with:"
-            echo "  kubectl get svc kibana -n ${NAMESPACE}"
-            echo "  kubectl describe svc kibana -n ${NAMESPACE}"
+            echo "  kubectl get svc alertmanager -n ${NAMESPACE}"
+            echo "  kubectl describe svc alertmanager -n ${NAMESPACE}"
         fi
     fi
 elif [ "$SERVICE_TYPE" = "NodePort" ]; then
@@ -249,49 +228,39 @@ elif [ "$SERVICE_TYPE" = "NodePort" ]; then
         NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null || echo "")
     fi
     if [ -n "$NODE_IP" ]; then
-        echo "✓ Kibana UI: http://${NODE_IP}:${NODE_PORT}"
+        echo "✓ Alertmanager UI: http://${NODE_IP}:${NODE_PORT}"
+        echo "✓ Alerts: http://${NODE_IP}:${NODE_PORT}/#/alerts"
     else
-        echo "✓ Kibana UI: http://<NODE_IP>:${NODE_PORT}"
+        echo "✓ Alertmanager UI: http://<NODE_IP>:${NODE_PORT}"
+        echo "✓ Alerts: http://<NODE_IP>:${NODE_PORT}/#/alerts"
         echo ""
         echo "Get node IP with:"
         echo "  kubectl get nodes -o wide"
         echo "  kubectl get nodes -o jsonpath='{.items[0].status.addresses}'"
     fi
 else
-    echo "✓ Kibana Service Type: $SERVICE_TYPE"
+    echo "✓ Alertmanager Service Type: $SERVICE_TYPE"
     echo "  Access via port-forward:"
-    echo "  kubectl port-forward -n ${NAMESPACE} svc/kibana 5601:5601"
-    echo "  Then access: http://localhost:5601"
+    echo "  kubectl port-forward -n ${NAMESPACE} svc/alertmanager 9093:9093"
+    echo "  Then access: http://localhost:9093"
+    echo "  Alerts: http://localhost:9093/#/alerts"
 fi
 
 echo ""
 echo "========================================="
-echo "Kibana deployment completed!"
+echo "Alertmanager deployment completed!"
 echo "========================================="
 echo ""
 echo "Verification commands:"
-echo "  kubectl get pods -n ${NAMESPACE} -l app=kibana"
-echo "  kubectl get svc -n ${NAMESPACE} kibana"
-echo "  kubectl logs -n ${NAMESPACE} -l app=kibana"
+echo "  kubectl get pods -n ${NAMESPACE} -l app=alertmanager"
+echo "  kubectl get svc -n ${NAMESPACE} alertmanager"
+echo "  kubectl logs -n ${NAMESPACE} -l app=alertmanager"
 echo ""
 echo "Next steps:"
-echo "  1. Access Kibana UI at the URL shown above"
-echo "  2. Configure Index Patterns:"
-echo "     - Go to Stack Management > Index Patterns"
-echo "     - Create index pattern: logstash-*"
-echo "     - Time field: @timestamp"
-echo "     - Create index patterns for each service:"
-echo "       * user-service-logs-*"
-echo "       * product-service-logs-*"
-echo "       * order-service-logs-*"
-echo "       * payment-service-logs-*"
-echo "       * shipping-service-logs-*"
-echo "  3. Explore logs in Discover:"
-echo "     - Go to Discover"
-echo "     - Select an index pattern"
-echo "     - View and search logs"
-echo "  4. Search by trace-id:"
-echo "     - Use KQL: trace_id:\"<trace-id>\""
-echo "     - This will show all logs for a specific request"
+echo "  1. Deploy Prometheus alerts rules: kubectl apply -f k8s/monitoring/prometheus-alerts-configmap.yaml"
+echo "  2. Update Prometheus config to include Alertmanager (already done in prometheus-configmap.yaml)"
+echo "  3. Restart Prometheus: kubectl rollout restart deployment/prometheus -n ${NAMESPACE}"
+echo "  4. Verify alerts in Prometheus UI: http://<PROMETHEUS_IP>:<PORT>/rules"
+echo "  5. Verify alerts in Alertmanager UI: http://<ALERTMANAGER_IP>:<PORT>/#/alerts"
 echo ""
 

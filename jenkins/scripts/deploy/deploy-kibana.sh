@@ -1,22 +1,22 @@
 #!/bin/bash
-# Script to deploy Grafana to Kubernetes
-# Usage: ./jenkins/scripts/deploy-grafana.sh <namespace> <environment> [service-type] [node-port]
+# Script to deploy Kibana to Kubernetes
+# Usage: ./jenkins/scripts/deploy-kibana.sh <namespace> <environment> [service-type] [node-port]
 
 set -e
 
 NAMESPACE="${1:-staging}"
 ENVIRONMENT="${2:-staging}"
 SERVICE_TYPE="${3:-NodePort}"
-NODE_PORT="${4:-30300}"
+NODE_PORT="${4:-30561}"
 
 if [ -z "$NAMESPACE" ] || [ -z "$ENVIRONMENT" ]; then
     echo "Usage: $0 <namespace> <environment> [service-type] [node-port]"
-    echo "Example: $0 staging staging NodePort 30300"
+    echo "Example: $0 staging staging NodePort 30561"
     exit 1
 fi
 
 echo "========================================="
-echo "Deploying Grafana to ${NAMESPACE}"
+echo "Deploying Kibana to ${NAMESPACE}"
 echo "Environment: ${ENVIRONMENT}"
 echo "Service Type: ${SERVICE_TYPE}"
 echo "Node Port: ${NODE_PORT}"
@@ -86,16 +86,30 @@ else
     echo "✓ Namespace exists"
 fi
 
+# Check if Elasticsearch is deployed
+echo ""
+echo "Checking if Elasticsearch is deployed..."
+if ! kubectl get svc elasticsearch -n "${NAMESPACE}" &> /dev/null; then
+    echo "Warning: Elasticsearch service not found in namespace ${NAMESPACE}"
+    echo "Kibana requires Elasticsearch to be deployed first."
+    echo "Please deploy Elasticsearch before deploying Kibana."
+    echo ""
+    echo "Deploy Elasticsearch with:"
+    echo "  ./jenkins/scripts/deploy-elasticsearch.sh ${NAMESPACE} ${ENVIRONMENT}"
+    exit 1
+fi
+echo "✓ Elasticsearch service found"
+
 # Function to substitute variables
 substitute_vars() {
     local file="$1"
     if [ "$USE_ENVSUBST" = true ]; then
         envsubst < "$file"
     else
-        # Fallback to sed for basic substitution
+        # Replace basic variables
         local output=$(sed -e "s/\${NAMESPACE}/${NAMESPACE}/g" \
                            -e "s/\${ENVIRONMENT}/${ENVIRONMENT}/g" \
-                           -e "s/nodePort: 30300/nodePort: ${NODE_PORT}/g" \
+                           -e "s/nodePort: 30561/nodePort: ${NODE_PORT}/g" \
                            -e "s/type: NodePort/type: ${SERVICE_TYPE}/g" \
                            "$file")
         # Remove nodePort if service type is ClusterIP
@@ -107,66 +121,36 @@ substitute_vars() {
     fi
 }
 
-# Step 1: Deploy PVC
+# Step 1: Deploy ConfigMap
 echo ""
-echo "Step 1: Deploying PersistentVolumeClaim..."
-if substitute_vars k8s/grafana-pvc.yaml | kubectl apply -f -; then
-    echo "✓ PVC deployed"
+echo "Step 1: Deploying ConfigMap..."
+if substitute_vars k8s/logging/kibana-configmap.yaml | kubectl apply -f -; then
+    echo "✓ ConfigMap deployed"
 else
-    echo "✗ Failed to deploy PVC"
+    echo "✗ Failed to deploy ConfigMap"
     exit 1
 fi
 
-# Step 2: Deploy Datasources ConfigMap
+# Step 2: Deploy Deployment and Service
 echo ""
-echo "Step 2: Deploying Datasources ConfigMap..."
-if substitute_vars k8s/grafana-datasources-configmap.yaml | kubectl apply -f -; then
-    echo "✓ Datasources ConfigMap deployed"
-else
-    echo "✗ Failed to deploy Datasources ConfigMap"
-    exit 1
-fi
-
-# Step 3: Deploy Dashboards Provider ConfigMap
-echo ""
-echo "Step 3: Deploying Dashboards Provider ConfigMap..."
-if substitute_vars k8s/grafana-dashboards-provider-configmap.yaml | kubectl apply -f -; then
-    echo "✓ Dashboards Provider ConfigMap deployed"
-else
-    echo "✗ Failed to deploy Dashboards Provider ConfigMap"
-    exit 1
-fi
-
-# Step 4: Deploy Dashboards ConfigMap
-echo ""
-echo "Step 4: Deploying Dashboards ConfigMap..."
-if substitute_vars k8s/grafana-dashboards-configmap.yaml | kubectl apply -f -; then
-    echo "✓ Dashboards ConfigMap deployed"
-else
-    echo "✗ Failed to deploy Dashboards ConfigMap"
-    exit 1
-fi
-
-# Step 5: Deploy Deployment and Service
-echo ""
-echo "Step 5: Deploying Grafana Deployment and Service..."
-if substitute_vars k8s/grafana.yaml | kubectl apply -f -; then
+echo "Step 2: Deploying Kibana Deployment and Service..."
+if substitute_vars k8s/logging/kibana.yaml | kubectl apply -f -; then
     echo "✓ Deployment and Service deployed"
 else
     echo "✗ Failed to deploy Deployment and Service"
     exit 1
 fi
 
-# Step 6: Wait for deployment
+# Step 3: Wait for deployment
 echo ""
-echo "Step 6: Waiting for Grafana to be ready..."
-TIMEOUT=300
+echo "Step 3: Waiting for Kibana to be ready..."
+TIMEOUT=600
 ELAPSED=0
-INTERVAL=5
+INTERVAL=10
 
 while [ $ELAPSED -lt $TIMEOUT ]; do
-    if kubectl get deployment grafana -n "${NAMESPACE}" -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null | grep -q "True"; then
-        echo "✓ Grafana is ready"
+    if kubectl get deployment kibana -n "${NAMESPACE}" -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null | grep -q "True"; then
+        echo "✓ Kibana is ready"
         break
     fi
     echo "  Waiting... ($ELAPSED/$TIMEOUT seconds)"
@@ -177,26 +161,26 @@ done
 if [ $ELAPSED -ge $TIMEOUT ]; then
     echo "Warning: Deployment did not become available within $TIMEOUT seconds"
     echo "Checking pod status..."
-    kubectl get pods -n "${NAMESPACE}" -l app=grafana
+    kubectl get pods -n "${NAMESPACE}" -l app=kibana
     echo ""
     echo "Checking pod logs..."
-    POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=grafana -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=kibana -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
     if [ -n "$POD_NAME" ]; then
         echo "Pod: $POD_NAME"
         kubectl logs -n "${NAMESPACE}" "$POD_NAME" --tail=50
     fi
     echo ""
     echo "Note: Deployment may still be in progress. Check status with:"
-    echo "  kubectl get pods -n ${NAMESPACE} -l app=grafana"
+    echo "  kubectl get pods -n ${NAMESPACE} -l app=kibana"
     exit 1
 fi
 
-# Step 7: Verify deployment
+# Step 4: Verify deployment
 echo ""
-echo "Step 7: Verifying deployment..."
-POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=grafana -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+echo "Step 4: Verifying deployment..."
+POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=kibana -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 if [ -z "$POD_NAME" ]; then
-    echo "Error: Grafana pod not found"
+    echo "Error: Kibana pod not found"
     exit 1
 fi
 
@@ -214,10 +198,29 @@ if [ -n "$POD_STATUS" ]; then
     fi
 fi
 
+# Wait a bit more for Kibana to fully initialize
+echo ""
+echo "Waiting for Kibana to fully initialize..."
+sleep 60
+
+# Step 5: Verify Kibana status
+echo ""
+echo "Step 5: Verifying Kibana status..."
+POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=kibana -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+if [ -n "$POD_NAME" ]; then
+    STATUS=$(kubectl exec -n "${NAMESPACE}" "$POD_NAME" -- curl -s http://localhost:5601/api/status 2>/dev/null || echo "")
+    if echo "$STATUS" | grep -q "status"; then
+        echo "✓ Kibana API is responding"
+    else
+        echo "Warning: Could not verify Kibana status"
+        echo "Response: $STATUS"
+    fi
+fi
+
 # Get service information
 echo ""
 echo "Service Information:"
-kubectl get svc grafana -n "${NAMESPACE}" || {
+kubectl get svc kibana -n "${NAMESPACE}" || {
     echo "Error: Service not found"
     exit 1
 }
@@ -227,19 +230,17 @@ echo ""
 if [ "$SERVICE_TYPE" = "LoadBalancer" ]; then
     echo "Waiting for LoadBalancer IP..."
     sleep 10
-    LB_IP=$(kubectl get svc grafana -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+    LB_IP=$(kubectl get svc kibana -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
     if [ -n "$LB_IP" ]; then
-        echo "✓ Grafana UI: http://${LB_IP}:3000"
-        echo "  Login: admin/admin"
+        echo "✓ Kibana UI: http://${LB_IP}:5601"
     else
-        LB_HOST=$(kubectl get svc grafana -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+        LB_HOST=$(kubectl get svc kibana -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
         if [ -n "$LB_HOST" ]; then
-            echo "✓ Grafana UI: http://${LB_HOST}:3000"
-            echo "  Login: admin/admin"
+            echo "✓ Kibana UI: http://${LB_HOST}:5601"
         else
             echo "⚠ LoadBalancer IP not yet assigned. Check with:"
-            echo "  kubectl get svc grafana -n ${NAMESPACE}"
-            echo "  kubectl describe svc grafana -n ${NAMESPACE}"
+            echo "  kubectl get svc kibana -n ${NAMESPACE}"
+            echo "  kubectl describe svc kibana -n ${NAMESPACE}"
         fi
     fi
 elif [ "$SERVICE_TYPE" = "NodePort" ]; then
@@ -248,38 +249,49 @@ elif [ "$SERVICE_TYPE" = "NodePort" ]; then
         NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null || echo "")
     fi
     if [ -n "$NODE_IP" ]; then
-        echo "✓ Grafana UI: http://${NODE_IP}:${NODE_PORT}"
-        echo "  Login: admin/admin"
+        echo "✓ Kibana UI: http://${NODE_IP}:${NODE_PORT}"
     else
-        echo "✓ Grafana UI: http://<NODE_IP>:${NODE_PORT}"
-        echo "  Login: admin/admin"
+        echo "✓ Kibana UI: http://<NODE_IP>:${NODE_PORT}"
         echo ""
         echo "Get node IP with:"
         echo "  kubectl get nodes -o wide"
         echo "  kubectl get nodes -o jsonpath='{.items[0].status.addresses}'"
     fi
 else
-    echo "✓ Grafana Service Type: $SERVICE_TYPE"
+    echo "✓ Kibana Service Type: $SERVICE_TYPE"
     echo "  Access via port-forward:"
-    echo "  kubectl port-forward -n ${NAMESPACE} svc/grafana 3000:3000"
-    echo "  Then access: http://localhost:3000"
-    echo "  Login: admin/admin"
+    echo "  kubectl port-forward -n ${NAMESPACE} svc/kibana 5601:5601"
+    echo "  Then access: http://localhost:5601"
 fi
 
 echo ""
 echo "========================================="
-echo "Grafana deployment completed!"
+echo "Kibana deployment completed!"
 echo "========================================="
 echo ""
 echo "Verification commands:"
-echo "  kubectl get pods -n ${NAMESPACE} -l app=grafana"
-echo "  kubectl get svc -n ${NAMESPACE} grafana"
-echo "  kubectl logs -n ${NAMESPACE} -l app=grafana"
+echo "  kubectl get pods -n ${NAMESPACE} -l app=kibana"
+echo "  kubectl get svc -n ${NAMESPACE} kibana"
+echo "  kubectl logs -n ${NAMESPACE} -l app=kibana"
 echo ""
-echo "To verify dashboards:"
-echo "  1. Access Grafana UI"
-echo "  2. Login with admin/admin"
-echo "  3. Navigate to Dashboards > System Overview"
-echo "  4. Verify datasource: Configuration > Data Sources > Prometheus"
+echo "Next steps:"
+echo "  1. Access Kibana UI at the URL shown above"
+echo "  2. Configure Index Patterns:"
+echo "     - Go to Stack Management > Index Patterns"
+echo "     - Create index pattern: logstash-*"
+echo "     - Time field: @timestamp"
+echo "     - Create index patterns for each service:"
+echo "       * user-service-logs-*"
+echo "       * product-service-logs-*"
+echo "       * order-service-logs-*"
+echo "       * payment-service-logs-*"
+echo "       * shipping-service-logs-*"
+echo "  3. Explore logs in Discover:"
+echo "     - Go to Discover"
+echo "     - Select an index pattern"
+echo "     - View and search logs"
+echo "  4. Search by trace-id:"
+echo "     - Use KQL: trace_id:\"<trace-id>\""
+echo "     - This will show all logs for a specific request"
 echo ""
 

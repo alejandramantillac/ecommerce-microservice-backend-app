@@ -152,7 +152,7 @@ def ensureNamespace(namespace) {
 }
 
 def applyConfigMap(environment, namespace) {
-    def configMapFile = "k8s/02-configmap-${environment}.yaml"
+    def configMapFile = "k8s/base/02-configmap-${environment}.yaml"
     
     echo "Applying ConfigMap from: ${configMapFile}"
     

@@ -1,22 +1,22 @@
 #!/bin/bash
-# Script to deploy Alertmanager to Kubernetes
-# Usage: ./jenkins/scripts/deploy-alertmanager.sh <namespace> <environment> [service-type] [node-port]
+# Script to deploy Grafana to Kubernetes
+# Usage: ./jenkins/scripts/deploy-grafana.sh <namespace> <environment> [service-type] [node-port]
 
 set -e
 
 NAMESPACE="${1:-staging}"
 ENVIRONMENT="${2:-staging}"
 SERVICE_TYPE="${3:-NodePort}"
-NODE_PORT="${4:-30933}"
+NODE_PORT="${4:-30300}"
 
 if [ -z "$NAMESPACE" ] || [ -z "$ENVIRONMENT" ]; then
     echo "Usage: $0 <namespace> <environment> [service-type] [node-port]"
-    echo "Example: $0 staging staging NodePort 30933"
+    echo "Example: $0 staging staging NodePort 30300"
     exit 1
 fi
 
 echo "========================================="
-echo "Deploying Alertmanager to ${NAMESPACE}"
+echo "Deploying Grafana to ${NAMESPACE}"
 echo "Environment: ${ENVIRONMENT}"
 echo "Service Type: ${SERVICE_TYPE}"
 echo "Node Port: ${NODE_PORT}"
@@ -92,10 +92,10 @@ substitute_vars() {
     if [ "$USE_ENVSUBST" = true ]; then
         envsubst < "$file"
     else
-        # Replace basic variables
+        # Fallback to sed for basic substitution
         local output=$(sed -e "s/\${NAMESPACE}/${NAMESPACE}/g" \
                            -e "s/\${ENVIRONMENT}/${ENVIRONMENT}/g" \
-                           -e "s/nodePort: 30933/nodePort: ${NODE_PORT}/g" \
+                           -e "s/nodePort: 30300/nodePort: ${NODE_PORT}/g" \
                            -e "s/type: NodePort/type: ${SERVICE_TYPE}/g" \
                            "$file")
         # Remove nodePort if service type is ClusterIP
@@ -110,43 +110,63 @@ substitute_vars() {
 # Step 1: Deploy PVC
 echo ""
 echo "Step 1: Deploying PersistentVolumeClaim..."
-if substitute_vars k8s/alertmanager-pvc.yaml | kubectl apply -f -; then
+if substitute_vars k8s/monitoring/grafana-pvc.yaml | kubectl apply -f -; then
     echo "✓ PVC deployed"
 else
     echo "✗ Failed to deploy PVC"
     exit 1
 fi
 
-# Step 2: Deploy ConfigMap
+# Step 2: Deploy Datasources ConfigMap
 echo ""
-echo "Step 2: Deploying ConfigMap..."
-if substitute_vars k8s/alertmanager-configmap.yaml | kubectl apply -f -; then
-    echo "✓ ConfigMap deployed"
+echo "Step 2: Deploying Datasources ConfigMap..."
+if substitute_vars k8s/monitoring/grafana-datasources-configmap.yaml | kubectl apply -f -; then
+    echo "✓ Datasources ConfigMap deployed"
 else
-    echo "✗ Failed to deploy ConfigMap"
+    echo "✗ Failed to deploy Datasources ConfigMap"
     exit 1
 fi
 
-# Step 3: Deploy Deployment and Service
+# Step 3: Deploy Dashboards Provider ConfigMap
 echo ""
-echo "Step 3: Deploying Alertmanager Deployment and Service..."
-if substitute_vars k8s/alertmanager.yaml | kubectl apply -f -; then
+echo "Step 3: Deploying Dashboards Provider ConfigMap..."
+if substitute_vars k8s/monitoring/grafana-dashboards-provider-configmap.yaml | kubectl apply -f -; then
+    echo "✓ Dashboards Provider ConfigMap deployed"
+else
+    echo "✗ Failed to deploy Dashboards Provider ConfigMap"
+    exit 1
+fi
+
+# Step 4: Deploy Dashboards ConfigMap
+echo ""
+echo "Step 4: Deploying Dashboards ConfigMap..."
+if substitute_vars k8s/monitoring/grafana-dashboards-configmap.yaml | kubectl apply -f -; then
+    echo "✓ Dashboards ConfigMap deployed"
+else
+    echo "✗ Failed to deploy Dashboards ConfigMap"
+    exit 1
+fi
+
+# Step 5: Deploy Deployment and Service
+echo ""
+echo "Step 5: Deploying Grafana Deployment and Service..."
+if substitute_vars k8s/monitoring/grafana.yaml | kubectl apply -f -; then
     echo "✓ Deployment and Service deployed"
 else
     echo "✗ Failed to deploy Deployment and Service"
     exit 1
 fi
 
-# Step 4: Wait for deployment
+# Step 6: Wait for deployment
 echo ""
-echo "Step 4: Waiting for Alertmanager to be ready..."
+echo "Step 6: Waiting for Grafana to be ready..."
 TIMEOUT=300
 ELAPSED=0
 INTERVAL=5
 
 while [ $ELAPSED -lt $TIMEOUT ]; do
-    if kubectl get deployment alertmanager -n "${NAMESPACE}" -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null | grep -q "True"; then
-        echo "✓ Alertmanager is ready"
+    if kubectl get deployment grafana -n "${NAMESPACE}" -o jsonpath='{.status.conditions[?(@.type=="Available")].status}' 2>/dev/null | grep -q "True"; then
+        echo "✓ Grafana is ready"
         break
     fi
     echo "  Waiting... ($ELAPSED/$TIMEOUT seconds)"
@@ -157,26 +177,26 @@ done
 if [ $ELAPSED -ge $TIMEOUT ]; then
     echo "Warning: Deployment did not become available within $TIMEOUT seconds"
     echo "Checking pod status..."
-    kubectl get pods -n "${NAMESPACE}" -l app=alertmanager
+    kubectl get pods -n "${NAMESPACE}" -l app=grafana
     echo ""
     echo "Checking pod logs..."
-    POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=alertmanager -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+    POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=grafana -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
     if [ -n "$POD_NAME" ]; then
         echo "Pod: $POD_NAME"
         kubectl logs -n "${NAMESPACE}" "$POD_NAME" --tail=50
     fi
     echo ""
     echo "Note: Deployment may still be in progress. Check status with:"
-    echo "  kubectl get pods -n ${NAMESPACE} -l app=alertmanager"
+    echo "  kubectl get pods -n ${NAMESPACE} -l app=grafana"
     exit 1
 fi
 
-# Step 5: Verify deployment
+# Step 7: Verify deployment
 echo ""
-echo "Step 5: Verifying deployment..."
-POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=alertmanager -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
+echo "Step 7: Verifying deployment..."
+POD_NAME=$(kubectl get pods -n "${NAMESPACE}" -l app=grafana -o jsonpath='{.items[0].metadata.name}' 2>/dev/null || echo "")
 if [ -z "$POD_NAME" ]; then
-    echo "Error: Alertmanager pod not found"
+    echo "Error: Grafana pod not found"
     exit 1
 fi
 
@@ -197,7 +217,7 @@ fi
 # Get service information
 echo ""
 echo "Service Information:"
-kubectl get svc alertmanager -n "${NAMESPACE}" || {
+kubectl get svc grafana -n "${NAMESPACE}" || {
     echo "Error: Service not found"
     exit 1
 }
@@ -207,19 +227,19 @@ echo ""
 if [ "$SERVICE_TYPE" = "LoadBalancer" ]; then
     echo "Waiting for LoadBalancer IP..."
     sleep 10
-    LB_IP=$(kubectl get svc alertmanager -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
+    LB_IP=$(kubectl get svc grafana -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || echo "")
     if [ -n "$LB_IP" ]; then
-        echo "✓ Alertmanager UI: http://${LB_IP}:9093"
-        echo "✓ Alerts: http://${LB_IP}:9093/#/alerts"
+        echo "✓ Grafana UI: http://${LB_IP}:3000"
+        echo "  Login: admin/admin"
     else
-        LB_HOST=$(kubectl get svc alertmanager -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
+        LB_HOST=$(kubectl get svc grafana -n "${NAMESPACE}" -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || echo "")
         if [ -n "$LB_HOST" ]; then
-            echo "✓ Alertmanager UI: http://${LB_HOST}:9093"
-            echo "✓ Alerts: http://${LB_HOST}:9093/#/alerts"
+            echo "✓ Grafana UI: http://${LB_HOST}:3000"
+            echo "  Login: admin/admin"
         else
             echo "⚠ LoadBalancer IP not yet assigned. Check with:"
-            echo "  kubectl get svc alertmanager -n ${NAMESPACE}"
-            echo "  kubectl describe svc alertmanager -n ${NAMESPACE}"
+            echo "  kubectl get svc grafana -n ${NAMESPACE}"
+            echo "  kubectl describe svc grafana -n ${NAMESPACE}"
         fi
     fi
 elif [ "$SERVICE_TYPE" = "NodePort" ]; then
@@ -228,39 +248,38 @@ elif [ "$SERVICE_TYPE" = "NodePort" ]; then
         NODE_IP=$(kubectl get nodes -o jsonpath='{.items[0].status.addresses[?(@.type=="ExternalIP")].address}' 2>/dev/null || echo "")
     fi
     if [ -n "$NODE_IP" ]; then
-        echo "✓ Alertmanager UI: http://${NODE_IP}:${NODE_PORT}"
-        echo "✓ Alerts: http://${NODE_IP}:${NODE_PORT}/#/alerts"
+        echo "✓ Grafana UI: http://${NODE_IP}:${NODE_PORT}"
+        echo "  Login: admin/admin"
     else
-        echo "✓ Alertmanager UI: http://<NODE_IP>:${NODE_PORT}"
-        echo "✓ Alerts: http://<NODE_IP>:${NODE_PORT}/#/alerts"
+        echo "✓ Grafana UI: http://<NODE_IP>:${NODE_PORT}"
+        echo "  Login: admin/admin"
         echo ""
         echo "Get node IP with:"
         echo "  kubectl get nodes -o wide"
         echo "  kubectl get nodes -o jsonpath='{.items[0].status.addresses}'"
     fi
 else
-    echo "✓ Alertmanager Service Type: $SERVICE_TYPE"
+    echo "✓ Grafana Service Type: $SERVICE_TYPE"
     echo "  Access via port-forward:"
-    echo "  kubectl port-forward -n ${NAMESPACE} svc/alertmanager 9093:9093"
-    echo "  Then access: http://localhost:9093"
-    echo "  Alerts: http://localhost:9093/#/alerts"
+    echo "  kubectl port-forward -n ${NAMESPACE} svc/grafana 3000:3000"
+    echo "  Then access: http://localhost:3000"
+    echo "  Login: admin/admin"
 fi
 
 echo ""
 echo "========================================="
-echo "Alertmanager deployment completed!"
+echo "Grafana deployment completed!"
 echo "========================================="
 echo ""
 echo "Verification commands:"
-echo "  kubectl get pods -n ${NAMESPACE} -l app=alertmanager"
-echo "  kubectl get svc -n ${NAMESPACE} alertmanager"
-echo "  kubectl logs -n ${NAMESPACE} -l app=alertmanager"
+echo "  kubectl get pods -n ${NAMESPACE} -l app=grafana"
+echo "  kubectl get svc -n ${NAMESPACE} grafana"
+echo "  kubectl logs -n ${NAMESPACE} -l app=grafana"
 echo ""
-echo "Next steps:"
-echo "  1. Deploy Prometheus alerts rules: kubectl apply -f k8s/prometheus-alerts-configmap.yaml"
-echo "  2. Update Prometheus config to include Alertmanager (already done in prometheus-configmap.yaml)"
-echo "  3. Restart Prometheus: kubectl rollout restart deployment/prometheus -n ${NAMESPACE}"
-echo "  4. Verify alerts in Prometheus UI: http://<PROMETHEUS_IP>:<PORT>/rules"
-echo "  5. Verify alerts in Alertmanager UI: http://<ALERTMANAGER_IP>:<PORT>/#/alerts"
+echo "To verify dashboards:"
+echo "  1. Access Grafana UI"
+echo "  2. Login with admin/admin"
+echo "  3. Navigate to Dashboards > System Overview"
+echo "  4. Verify datasource: Configuration > Data Sources > Prometheus"
 echo ""
 

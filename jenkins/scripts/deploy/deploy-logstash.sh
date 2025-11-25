@@ -110,7 +110,7 @@ substitute_vars() {
 # Step 1: Deploy ConfigMap
 echo ""
 echo "Step 1: Deploying ConfigMap..."
-if substitute_vars k8s/logstash-configmap.yaml | kubectl apply -f -; then
+if substitute_vars k8s/logging/logstash-configmap.yaml | kubectl apply -f -; then
     echo "✓ ConfigMap deployed"
 else
     echo "✗ Failed to deploy ConfigMap"
@@ -120,7 +120,7 @@ fi
 # Step 2: Deploy Deployment and Service
 echo ""
 echo "Step 2: Deploying Logstash Deployment and Service..."
-if substitute_vars k8s/logstash.yaml | kubectl apply -f -; then
+if substitute_vars k8s/logging/logstash.yaml | kubectl apply -f -; then
     echo "✓ Deployment and Service deployed"
 else
     echo "✗ Failed to deploy Deployment and Service"

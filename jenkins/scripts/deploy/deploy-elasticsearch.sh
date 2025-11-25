@@ -110,7 +110,7 @@ substitute_vars() {
 # Step 1: Deploy PVC
 echo ""
 echo "Step 1: Deploying PersistentVolumeClaim..."
-if substitute_vars k8s/elasticsearch-pvc.yaml | kubectl apply -f -; then
+if substitute_vars k8s/logging/elasticsearch-pvc.yaml | kubectl apply -f -; then
     echo "✓ PVC deployed"
 else
     echo "✗ Failed to deploy PVC"
@@ -120,7 +120,7 @@ fi
 # Step 2: Deploy ConfigMap
 echo ""
 echo "Step 2: Deploying ConfigMap..."
-if substitute_vars k8s/elasticsearch-configmap.yaml | kubectl apply -f -; then
+if substitute_vars k8s/logging/elasticsearch-configmap.yaml | kubectl apply -f -; then
     echo "✓ ConfigMap deployed"
 else
     echo "✗ Failed to deploy ConfigMap"
@@ -130,7 +130,7 @@ fi
 # Step 3: Deploy Deployment and Service
 echo ""
 echo "Step 3: Deploying Elasticsearch Deployment and Service..."
-if substitute_vars k8s/elasticsearch.yaml | kubectl apply -f -; then
+if substitute_vars k8s/logging/elasticsearch.yaml | kubectl apply -f -; then
     echo "✓ Deployment and Service deployed"
 else
     echo "✗ Failed to deploy Deployment and Service"
