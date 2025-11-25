@@ -210,25 +210,12 @@ pipeline {
                         withEnv(["KCFG=${env.STAGING_KUBE_CONFIG_PATH}"]) {
                             script {
                                 def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                                echo "Running comprehensive test suite in staging..."
-                                
-                                // Get API Gateway URL
-                                env.STAGING_GATEWAY_IP = commonFunctions.getLoadBalancerIP('api-gateway', 'staging')
-                                env.API_GATEWAY_STAGING = "http://${env.STAGING_GATEWAY_IP}:8080"
-                                
-                                echo "Testing against: ${env.API_GATEWAY_STAGING}"
-                                
-                                // Run integration tests
-                                commonFunctions.runIntegrationTests(
-                                    env.K8S_NAMESPACE_STAGING, 
-                                    env.API_GATEWAY_STAGING
-                                )
-                                
-                                // Run E2E tests
-                                commonFunctions.runE2ETests(
-                                    env.K8S_NAMESPACE_STAGING, 
-                                    env.API_GATEWAY_STAGING
-                                )
+                                echo "Running all test suites..."
+                                env.API_GATEWAY_URL = commonFunctions.getLoadBalancerIP('api-gateway', 'staging')
+
+                                echo "API Gateway URL: ${env.API_GATEWAY_URL}"
+
+                                commonFunctions.runAllTests(env.K8S_NAMESPACE)
                             }
                         }
                     }
@@ -261,40 +248,11 @@ pipeline {
                                 archiveArtifacts artifacts: 'tests/*-report.html,tests/*-report.json', 
                                                  fingerprint: true, 
                                                  allowEmptyArchive: true
+                                
+                                archiveArtifacts artifacts: 'tests/performance*.csv,tests/performance-report.html', 
+                                                fingerprint: true, 
+                                                allowEmptyArchive: true
                             }
-                        }
-                    }
-                }
-                
-                stage('Performance Tests') {
-                    steps {
-                        withEnv(["KCFG=${env.STAGING_KUBE_CONFIG_PATH}"]) {
-                            script {
-                                def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                                echo "Running performance tests with production-like load..."
-                                
-                                env.API_GATEWAY_STAGING = commonFunctions.getLoadBalancerIP('api-gateway', 'staging')
-                                env.API_GATEWAY_STAGING = "http://${env.API_GATEWAY_STAGING}:8080"
-                                
-                                echo "Testing against: ${env.API_GATEWAY_STAGING}"
-                                
-                                // Run performance tests with higher load for production validation
-                                commonFunctions.runPerformanceTests(
-                                    env.K8S_NAMESPACE_STAGING, 
-                                    env.API_GATEWAY_STAGING,
-                                    '100',  // users
-                                    '20',   // spawn rate
-                                    '120s'  // 2 minutes (ajustado de 10 minutos)
-                                )
-                            }
-                        }
-                    }
-                    post {
-                        always {
-                            echo "HTML Publisher plugin unavailable; archiving raw performance reports."
-                            archiveArtifacts artifacts: 'tests/performance*.csv,tests/performance-report.html', 
-                                             fingerprint: true, 
-                                             allowEmptyArchive: true
                         }
                     }
                 }
