@@ -117,7 +117,7 @@ pipeline {
 
                                 echo "API Gateway URL: ${env.API_GATEWAY_URL}"
 
-                                commonFunctions.runAllTests(env.K8S_NAMESPACE_STAGING)
+                                commonFunctions.runAllTests(env.K8S_NAMESPACE_STAGING, env.CHANGED_SERVICES)
                             }
                         }
                     }
