@@ -194,7 +194,6 @@ def getServicesList() {
             name: 'prometheus',
             port: 9090,
             type: 'monitoring',
-            path: 'prometheus',
             external: true,
             exposure: [
                 dev: [
@@ -224,7 +223,6 @@ def getServicesList() {
             name: 'grafana',
             port: 3000,
             type: 'monitoring',
-            path: 'grafana',
             external: true,
             exposure: [
                 dev: [
@@ -254,7 +252,6 @@ def getServicesList() {
             name: 'alertmanager',
             port: 9093,
             type: 'monitoring',
-            path: 'alertmanager',
             external: true,
             exposure: [
                 dev: [
@@ -284,7 +281,6 @@ def getServicesList() {
             name: 'elasticsearch',
             port: 9200,
             type: 'logging',
-            path: 'elasticsearch',
             external: true,
             exposure: [
                 dev: [
@@ -314,7 +310,6 @@ def getServicesList() {
             name: 'logstash',
             port: 5044,
             type: 'logging',
-            path: 'logstash',
             external: true,
             exposure: [
                 dev: [
@@ -341,7 +336,6 @@ def getServicesList() {
             name: 'kibana',
             port: 5601,
             type: 'logging',
-            path: 'kibana',
             external: true,
             exposure: [
                 dev: [
@@ -371,7 +365,6 @@ def getServicesList() {
             name: 'filebeat',
             port: 0,
             type: 'logging',
-            path: 'filebeat',
             external: true,
             exposure: [
                 dev: [

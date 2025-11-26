@@ -35,7 +35,7 @@ def printDeploymentInfo(environment, imageTag, namespace = null) {
 
 def detectChangedServices(services) {
     // Build service list as comma-separated paths
-    def servicePaths = services.collect { it.path ?: it.name }.join(',')
+    def servicePaths = services.findAll { it.path }.collect { it.path }.join(',')
     
     // Use the shell script to detect changes
     def changedServicesList = sh(
