@@ -163,14 +163,25 @@ pipeline {
                 script {
                     def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                     def monitoringOutputs = commonFunctions.loadMonitoringOutputs(env.K8S_NAMESPACE)
-                    withCredentials([
-                        string(credentialsId: 'GRAFANA_API_KEY', variable: 'GRAFANA_API_KEY')
-                    ]) {
-                        commonFunctions.migrateGrafanaDashboards(
-                            monitoringOutputs.grafanaEndpoint,
-                            env.GRAFANA_API_KEY,
-                            monitoringOutputs.prometheusQueryEndpoint
-                        )
+                    
+                    // Intentar migrar dashboards si la credencial está disponible
+                    try {
+                        withCredentials([
+                            string(credentialsId: 'GRAFANA_API_KEY', variable: 'GRAFANA_API_KEY')
+                        ]) {
+                            echo "Migrating Grafana dashboards to Azure Managed Grafana..."
+                            commonFunctions.migrateGrafanaDashboards(
+                                monitoringOutputs.grafanaEndpoint,
+                                env.GRAFANA_API_KEY,
+                                monitoringOutputs.prometheusQueryEndpoint,
+                                'k8s/monitoring/grafana-dashboards'
+                            )
+                        }
+                    } catch (Exception e) {
+                        echo "⚠ Warning: Could not migrate Grafana dashboards - GRAFANA_API_KEY credential not found or migration failed"
+                        echo "You can manually migrate dashboards later or configure the GRAFANA_API_KEY credential in Jenkins"
+                        echo "Error: ${e.getMessage()}"
+                        // No fallar el pipeline por esto - el monitoring funciona sin los dashboards
                     }
                 }
             }

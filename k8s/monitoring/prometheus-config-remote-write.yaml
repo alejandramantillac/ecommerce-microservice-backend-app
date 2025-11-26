@@ -32,7 +32,6 @@ data:
           batch_send_deadline: 5s
           max_shards: 200
           min_shards: 1
-          max_samples_per_shard: 500
         # Autenticación OAuth2 con Azure AD
         oauth2:
           client_id: '${AZURE_CLIENT_ID}'
