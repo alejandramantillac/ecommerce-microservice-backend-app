@@ -25,9 +25,7 @@ spec:
           imagePullPolicy: IfNotPresent
           args:
             - '--config.file=/etc/prometheus/prometheus.yml'
-            - '--storage.tsdb.path=/prometheus'
-            - '--storage.tsdb.retention.time=2h'  # Solo 2 horas, datos van a Azure
-            - '--enable-feature=agent'  # Modo agente (no almacena localmente)
+            - '--enable-feature=agent'  # Modo agente (no almacena localmente, solo scrapea y envía)
             - '--enable-feature=remote-write-receiver'
             - '--web.listen-address=0.0.0.0:9090'
           ports:
