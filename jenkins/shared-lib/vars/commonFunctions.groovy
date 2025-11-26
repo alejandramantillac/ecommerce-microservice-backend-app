@@ -105,12 +105,16 @@ def deployToKubernetes(environment, namespace, registry, imageTag, changedServic
     // PASO 0: Ensure namespace exists before applying resources
     ensureNamespace(namespace)
 
-    // PASO 1: Apply ConfigMap first (services depend on it)
-    echo "Step 1: Applying ConfigMap for ${environment}..."
+    // PASO 1: Apply Secrets first (before ConfigMap)
+    echo "Step 1: Applying Secrets for ${environment}..."
+    applySecrets(environment, namespace)
+
+    // PASO 2: Apply ConfigMap (services depend on it)
+    echo "Step 2: Applying ConfigMap for ${environment}..."
     applyConfigMap(environment, namespace)
     
-    // PASO 2: Deploy core services (in order)
-    echo "Step 2: Deploying core services..."
+    // PASO 3: Deploy core services (in order)
+    echo "Step 3: Deploying core services..."
     def coreServices = commonVars.getCoreServices()
     for (service in coreServices) {
         if (changedServices.contains(service.name)) {
@@ -118,8 +122,8 @@ def deployToKubernetes(environment, namespace, registry, imageTag, changedServic
         }
     }
 
-    // PASO 3: Deploy monitoring services
-    echo "Step 3: Deploying monitoring services..."
+    // PASO 4: Deploy monitoring services
+    echo "Step 4: Deploying monitoring services..."
     def monitoringServices = commonVars.getMonitoringServices()
     for (service in monitoringServices) {
         if (changedServices.contains(service.name)) {
@@ -127,8 +131,8 @@ def deployToKubernetes(environment, namespace, registry, imageTag, changedServic
         }
     }
     
-    // PASO 4: Deploy business services in parallel
-    echo "Step 4: Deploying business services..."
+    // PASO 5: Deploy business services in parallel
+    echo "Step 5: Deploying business services..."
     def businessServices = commonVars.getBusinessServices()
     def businessDeployStages = [:]
     businessServices.each { service ->
@@ -148,6 +152,22 @@ def ensureNamespace(namespace) {
     sh """
         kubectl --kubeconfig="\${KCFG}" get ns ${namespace} >/dev/null 2>&1 || \
         kubectl --kubeconfig="\${KCFG}" create namespace ${namespace}
+    """
+}
+
+def applySecrets(environment, namespace) {
+    def secretFile = "k8s/base/secrets/03-secret-${environment}.yaml"
+    
+    echo "Applying Secrets from: ${secretFile}"
+    
+    sh """
+        if [ -f "${secretFile}" ]; then
+            kubectl --kubeconfig="\${KCFG}" apply -f "${secretFile}"
+            echo "✓ Secrets applied successfully for ${environment}"
+        else
+            echo "⚠ Warning: Secret file not found: ${secretFile}"
+            echo "Services will use default/fallback secrets (not recommended for production)"
+        fi
     """
 }
 
