@@ -187,11 +187,11 @@ resource "azurerm_container_app" "kibana" {
       }
       env {
         name  = "SERVER_NAME"
-        value = length(azurerm_container_app.kibana.ingress) > 0 && azurerm_container_app.kibana.ingress[0].fqdn != null ? azurerm_container_app.kibana.ingress[0].fqdn : "${azurerm_container_app.kibana.name}.${azurerm_container_app_environment.elk.default_domain}"
+        value = "${local.kibana_app_name}.${azurerm_container_app_environment.elk.default_domain}"
       }
       env {
         name  = "SERVER_PUBLICBASEURL"
-        value = length(azurerm_container_app.kibana.ingress) > 0 && azurerm_container_app.kibana.ingress[0].fqdn != null ? "https://${azurerm_container_app.kibana.ingress[0].fqdn}" : "http://${azurerm_container_app.kibana.name}.${azurerm_container_app_environment.elk.default_domain}"
+        value = var.kibana_public_access ? "https://${local.kibana_app_name}.${azurerm_container_app_environment.elk.default_domain}" : "http://${local.kibana_app_name}.${azurerm_container_app_environment.elk.default_domain}"
       }
     }
   }
