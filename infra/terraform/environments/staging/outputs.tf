@@ -49,3 +49,20 @@ output "grafana_name" {
   value = module.monitoring.grafana_name
 }
 
+# Logging outputs
+output "elasticsearch_endpoint" {
+  value = module.logging.elasticsearch_endpoint
+}
+
+output "elasticsearch_internal_endpoint" {
+  value = module.logging.elasticsearch_internal_endpoint
+}
+
+output "kibana_endpoint" {
+  value = module.logging.kibana_endpoint
+}
+
+output "logstash_endpoint" {
+  value = module.logging.logstash_endpoint
+}
+

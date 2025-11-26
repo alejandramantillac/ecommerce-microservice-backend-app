@@ -93,4 +93,31 @@ module "monitoring" {
   tags = local.base_tags
 }
 
+module "logging" {
+  source = "../../modules/logging"
+
+  name_prefix         = local.name_prefix
+  resource_group_name = azurerm_resource_group.this.name
+  location            = azurerm_resource_group.this.location
+  # Usar subnet privada para integración con VNet (opcional, puede estar vacío)
+  vnet_subnet_id      = try(module.networking.private_subnet_ids["core"], "")
+
+  elasticsearch_replicas     = var.elasticsearch_replicas
+  elasticsearch_cpu           = var.elasticsearch_cpu
+  elasticsearch_memory        = var.elasticsearch_memory
+  elasticsearch_java_heap     = var.elasticsearch_java_heap
+  elasticsearch_public_access  = var.elasticsearch_public_access
+
+  logstash_replicas = var.logstash_replicas
+  logstash_cpu      = var.logstash_cpu
+  logstash_memory   = var.logstash_memory
+
+  kibana_replicas      = var.kibana_replicas
+  kibana_cpu           = var.kibana_cpu
+  kibana_memory        = var.kibana_memory
+  kibana_public_access = var.kibana_public_access
+
+  tags = local.base_tags
+}
+
 

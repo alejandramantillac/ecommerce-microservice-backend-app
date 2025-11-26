@@ -36,9 +36,8 @@ data:
             cluster: "ecommerce-microservices"
             environment: "${ENVIRONMENT}"
     
-    output.logstash:
-      hosts: ["logstash.${NAMESPACE}.svc.cluster.local:5044"]
-      ssl.enabled: false
+    output.elasticsearch:
+      hosts: ["${ELASTICSEARCH_ENDPOINT}"]
     
     logging.level: info
     logging.to_files: true

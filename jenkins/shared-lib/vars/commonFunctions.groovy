@@ -266,6 +266,112 @@ def loadMonitoringOutputs(envNamespace) {
     ]
 }
 
+/**
+ * Retrieves all relevant logging outputs from Terraform.
+ * @param envNamespace The environment namespace.
+ * @return A map containing elasticsearchEndpoint, elasticsearchInternalEndpoint, kibanaEndpoint, and logstashEndpoint.
+ */
+def getLoggingOutputs(envNamespace) {
+    return [
+        elasticsearchEndpoint: getTerraformOutput(envNamespace, 'elasticsearch_endpoint'),
+        elasticsearchInternalEndpoint: getTerraformOutput(envNamespace, 'elasticsearch_internal_endpoint'),
+        kibanaEndpoint: getTerraformOutput(envNamespace, 'kibana_endpoint'),
+        logstashEndpoint: getTerraformOutput(envNamespace, 'logstash_endpoint')
+    ]
+}
+
+/**
+ * Saves logging outputs to a file for later use.
+ * @param envNamespace The environment namespace.
+ * @param loggingOutputs A map containing the logging outputs.
+ * @return The path to the file where outputs were saved.
+ */
+def saveLoggingOutputs(envNamespace, loggingOutputs) {
+    def outputFile = "${env.WORKSPACE}/.logging-${envNamespace}.env"
+    sh """
+        echo "ELASTICSEARCH_ENDPOINT=${loggingOutputs.elasticsearchEndpoint}" > "${outputFile}"
+        echo "ELASTICSEARCH_INTERNAL_ENDPOINT=${loggingOutputs.elasticsearchInternalEndpoint}" >> "${outputFile}"
+        echo "KIBANA_ENDPOINT=${loggingOutputs.kibanaEndpoint}" >> "${outputFile}"
+        echo "LOGSTASH_ENDPOINT=${loggingOutputs.logstashEndpoint}" >> "${outputFile}"
+    """
+    return outputFile
+}
+
+/**
+ * Loads logging outputs from a file.
+ * @param envNamespace The environment namespace.
+ * @return A map containing elasticsearchEndpoint, elasticsearchInternalEndpoint, kibanaEndpoint, and logstashEndpoint.
+ */
+def loadLoggingOutputs(envNamespace) {
+    def outputFile = "${env.WORKSPACE}/.logging-${envNamespace}.env"
+    if (!fileExists(outputFile)) {
+        echo "Warning: Logging outputs file not found: ${outputFile}"
+        return [:]
+    }
+    
+    def elasticsearchEndpoint = sh(
+        script: "grep ELASTICSEARCH_ENDPOINT '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
+    
+    def elasticsearchInternalEndpoint = sh(
+        script: "grep ELASTICSEARCH_INTERNAL_ENDPOINT '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
+    
+    def kibanaEndpoint = sh(
+        script: "grep KIBANA_ENDPOINT '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
+    
+    def logstashEndpoint = sh(
+        script: "grep LOGSTASH_ENDPOINT '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
+    
+    return [
+        elasticsearchEndpoint: elasticsearchEndpoint,
+        elasticsearchInternalEndpoint: elasticsearchInternalEndpoint,
+        kibanaEndpoint: kibanaEndpoint,
+        logstashEndpoint: logstashEndpoint
+    ]
+}
+
+/**
+ * Deploy Filebeat to send logs to Elasticsearch in Azure Container Apps
+ * @param namespace Kubernetes namespace
+ * @param environment Environment name (staging/prod)
+ * @param elasticsearchEndpoint Elasticsearch endpoint from Azure Container Apps
+ */
+def deployFilebeat(namespace, environment, elasticsearchEndpoint) {
+    echo "========================================="
+    echo "Deploying Filebeat"
+    echo "========================================="
+    echo "Namespace: ${namespace}"
+    echo "Environment: ${environment}"
+    echo "Elasticsearch Endpoint: ${elasticsearchEndpoint}"
+    echo "========================================="
+    
+    sh """
+        chmod +x jenkins/scripts/deploy/deploy-filebeat.sh
+        export KCFG="\${KCFG:-}"
+        export ELASTICSEARCH_ENDPOINT="${elasticsearchEndpoint}"
+        jenkins/scripts/deploy/deploy-filebeat.sh "${namespace}" "${environment}" "${elasticsearchEndpoint}"
+    """
+    
+    echo ""
+    echo "✓ Filebeat deployed successfully"
+    echo "  Logs are being sent to Elasticsearch at: ${elasticsearchEndpoint}"
+    
+    // Verify deployment
+    echo ""
+    echo "Verifying deployment..."
+    sh """
+        kubectl --kubeconfig="\${KCFG}" get daemonset -n "${namespace}" filebeat || true
+        kubectl --kubeconfig="\${KCFG}" get pods -n "${namespace}" -l app=filebeat || true
+    """
+}
+
 def rollbackServices(namespace, services, kubeconfigPath) {
     if (!services?.trim()) {
         echo "No services provided for rollback."
@@ -770,92 +876,6 @@ def migrateGrafanaDashboards(grafanaEndpoint, grafanaApiKey, prometheusQueryEndp
     echo ""
     echo "✓ Dashboards migrated successfully"
     echo "  Access them at: ${grafanaEndpoint}"
-}
-
-/**
- * Deploy ELK Stack (Elasticsearch, Logstash, Kibana, Filebeat)
- * @param namespace Kubernetes namespace
- * @param environment Environment name (staging/prod)
- * @param serviceType Service type (NodePort/LoadBalancer)
- */
-def deployELKStack(namespace, environment, serviceType = 'NodePort') {
-    echo "========================================="
-    echo "Deploying ELK Stack"
-    echo "========================================="
-    echo "Namespace: ${namespace}"
-    echo "Environment: ${environment}"
-    echo "Service Type: ${serviceType}"
-    echo "========================================="
-    
-    // Determine NodePorts based on environment
-    def elasticsearchPort = environment == 'prod' ? '30920' : '30920'
-    def kibanaPort = environment == 'prod' ? '30561' : '30561'
-    
-    // Define kubectl command (reusable)
-    def kubectlCmd = env.KCFG ? "kubectl --kubeconfig=\"\${KCFG}\"" : "kubectl"
-    
-    // Step 1: Deploy Elasticsearch (required by Logstash and Kibana)
-    echo ""
-    echo "Step 1: Deploying Elasticsearch..."
-    sh """
-        chmod +x jenkins/scripts/deploy/deploy-elasticsearch.sh
-        export KCFG="\${KCFG:-}"
-        jenkins/scripts/deploy/deploy-elasticsearch.sh "${namespace}" "${environment}" "${serviceType}" "${elasticsearchPort}"
-    """
-    
-    // Wait for Elasticsearch to be ready
-    echo "Waiting for Elasticsearch to be ready..."
-    sh """
-        ${kubectlCmd} wait --for=condition=Available deployment/elasticsearch -n "${namespace}" --timeout=300s || true
-    """
-    sleep(time: 15, unit: 'SECONDS')
-    
-    // Step 2: Deploy Logstash (depends on Elasticsearch)
-    echo ""
-    echo "Step 2: Deploying Logstash..."
-    sh """
-        chmod +x jenkins/scripts/deploy/deploy-logstash.sh
-        export KCFG="\${KCFG:-}"
-        jenkins/scripts/deploy/deploy-logstash.sh "${namespace}" "${environment}"
-    """
-    
-    // Wait for Logstash to be ready
-    echo "Waiting for Logstash to be ready..."
-    sh """
-        ${kubectlCmd} wait --for=condition=Available deployment/logstash -n "${namespace}" --timeout=300s || true
-    """
-    sleep(time: 10, unit: 'SECONDS')
-    
-    // Step 3: Deploy Kibana (depends on Elasticsearch)
-    echo ""
-    echo "Step 3: Deploying Kibana..."
-    sh """
-        chmod +x jenkins/scripts/deploy/deploy-kibana.sh
-        export KCFG="\${KCFG:-}"
-        jenkins/scripts/deploy/deploy-kibana.sh "${namespace}" "${environment}" "${serviceType}" "${kibanaPort}"
-    """
-    
-    // Step 4: Deploy Filebeat (depends on Logstash)
-    echo ""
-    echo "Step 4: Deploying Filebeat..."
-    sh """
-        chmod +x jenkins/scripts/deploy/deploy-filebeat.sh
-        export KCFG="\${KCFG:-}"
-        jenkins/scripts/deploy/deploy-filebeat.sh "${namespace}" "${environment}"
-    """
-    
-    echo ""
-    echo "========================================="
-    echo "ELK Stack deployment completed!"
-    echo "========================================="
-    
-    // Verify deployments
-    echo ""
-    echo "Verifying ELK stack deployments..."
-    sh """
-        ${kubectlCmd} get pods -n "${namespace}" -l 'app in (elasticsearch,logstash,kibana,filebeat)' || true
-        ${kubectlCmd} get daemonset -n "${namespace}" filebeat || true
-    """
 }
 
 def sendNotification(severity, summary, details, services, includeMentions = false) {

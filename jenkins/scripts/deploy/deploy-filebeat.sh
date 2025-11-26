@@ -1,21 +1,23 @@
 #!/bin/bash
 # Script to deploy Filebeat to Kubernetes
-# Usage: ./jenkins/scripts/deploy-filebeat.sh <namespace> <environment>
+# Usage: ./jenkins/scripts/deploy-filebeat.sh <namespace> <environment> <elasticsearch-endpoint>
 
 set -e
 
 NAMESPACE="${1:-staging}"
 ENVIRONMENT="${2:-staging}"
+ELASTICSEARCH_ENDPOINT="${3}"
 
-if [ -z "$NAMESPACE" ] || [ -z "$ENVIRONMENT" ]; then
-    echo "Usage: $0 <namespace> <environment>"
-    echo "Example: $0 staging staging"
+if [ -z "$NAMESPACE" ] || [ -z "$ENVIRONMENT" ] || [ -z "$ELASTICSEARCH_ENDPOINT" ]; then
+    echo "Usage: $0 <namespace> <environment> <elasticsearch-endpoint>"
+    echo "Example: $0 staging staging http://elasticsearch-app.default-domain:9200"
     exit 1
 fi
 
 echo "========================================="
 echo "Deploying Filebeat to ${NAMESPACE}"
 echo "Environment: ${ENVIRONMENT}"
+echo "Elasticsearch Endpoint: ${ELASTICSEARCH_ENDPOINT}"
 echo "========================================="
 
 # Check kubectl availability
@@ -67,6 +69,7 @@ fi
 # Export variables for envsubst
 export NAMESPACE
 export ENVIRONMENT
+export ELASTICSEARCH_ENDPOINT
 
 # Check if namespace exists
 echo ""
@@ -80,19 +83,9 @@ else
     echo "✓ Namespace exists"
 fi
 
-# Check if Logstash is deployed
+# Elasticsearch endpoint is provided as parameter (from Azure Container Apps)
 echo ""
-echo "Checking if Logstash is deployed..."
-if ! kubectl get svc logstash -n "${NAMESPACE}" &> /dev/null; then
-    echo "Warning: Logstash service not found in namespace ${NAMESPACE}"
-    echo "Filebeat requires Logstash to be deployed first."
-    echo "Please deploy Logstash before deploying Filebeat."
-    echo ""
-    echo "Deploy Logstash with:"
-    echo "  ./jenkins/scripts/deploy-logstash.sh ${NAMESPACE} ${ENVIRONMENT}"
-    exit 1
-fi
-echo "✓ Logstash service found"
+echo "Using Elasticsearch endpoint: ${ELASTICSEARCH_ENDPOINT}"
 
 # Function to substitute variables
 substitute_vars() {
@@ -103,6 +96,7 @@ substitute_vars() {
         # Replace basic variables
         sed -e "s/\${NAMESPACE}/${NAMESPACE}/g" \
             -e "s/\${ENVIRONMENT}/${ENVIRONMENT}/g" \
+            -e "s|\${ELASTICSEARCH_ENDPOINT}|${ELASTICSEARCH_ENDPOINT}|g" \
             "$file"
     fi
 }

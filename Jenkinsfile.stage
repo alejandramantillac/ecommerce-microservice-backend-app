@@ -187,16 +187,38 @@ pipeline {
             }
         }
 
-        stage('Deploy ELK Stack') {
+        stage('Get Logging Endpoints') {
             steps {
+                unstash 'workspace'
+                script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    echo "Retrieving logging endpoints from Terraform outputs..."
+                    def loggingOutputs = commonFunctions.getLoggingOutputs(env.K8S_NAMESPACE)
+                    def outputFile = commonFunctions.saveLoggingOutputs(env.K8S_NAMESPACE, loggingOutputs)
+                    stash name: 'logging-outputs', includes: ".logging-${env.K8S_NAMESPACE}.env"
+                    env.ELASTICSEARCH_ENDPOINT = loggingOutputs.elasticsearchEndpoint
+                    env.ELASTICSEARCH_INTERNAL_ENDPOINT = loggingOutputs.elasticsearchInternalEndpoint
+                    env.KIBANA_ENDPOINT = loggingOutputs.kibanaEndpoint
+                    env.LOGSTASH_ENDPOINT = loggingOutputs.logstashEndpoint
+                }
+            }
+        }
+
+        stage('Deploy Filebeat') {
+            steps {
+                unstash 'workspace'
+                unstash 'kubeconfig'
+                unstash 'logging-outputs'
                 withEnv(["KCFG=${env.KUBE_CONFIG_PATH}"]) {
                     script {
                         def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                        echo "Deploying ELK stack (Elasticsearch, Logstash, Kibana, Filebeat)..."
-                        commonFunctions.deployELKStack(
+                        def loggingOutputs = commonFunctions.loadLoggingOutputs(env.K8S_NAMESPACE)
+                        echo "Deploying Filebeat to send logs to Elasticsearch in Azure Container Apps..."
+                        echo "Elasticsearch Endpoint: ${loggingOutputs.elasticsearchInternalEndpoint}"
+                        commonFunctions.deployFilebeat(
                             env.K8S_NAMESPACE,
                             env.TARGET_ENVIRONMENT,
-                            'NodePort'  // Use NodePort for staging
+                            loggingOutputs.elasticsearchInternalEndpoint
                         )
                     }
                 }
