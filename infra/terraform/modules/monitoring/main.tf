@@ -38,7 +38,7 @@ resource "azurerm_dashboard_grafana" "grafana" {
   deterministic_outbound_ip_enabled = true
   public_network_access_enabled     = var.grafana_public_access
   sku                               = var.grafana_sku
-  grafana_major_version             = "10"
+  grafana_major_version             = "11"
   zone_redundancy_enabled           = var.grafana_zone_redundancy
 
   identity {
