@@ -18,30 +18,11 @@ locals {
   prometheus_ws_name = "${var.name_prefix}-prometheus-ws"
 }
 
-# Registrar los providers necesarios si no están registrados
-# Nota: microsoft.insights se registra automáticamente por Terraform, no necesita registro manual
-resource "azurerm_resource_provider_registration" "monitor" {
-  name = "Microsoft.Monitor"
-  
-  timeouts {
-    create = "10m"
-    update = "10m"
-  }
-}
-
-resource "azurerm_resource_provider_registration" "dashboard" {
-  name = "Microsoft.Dashboard"
-  
-  timeouts {
-    create = "10m"
-    update = "10m"
-  }
-}
-
 # Azure Monitor Workspace (Prometheus gestionado)
-# Nota: microsoft.insights se registra automáticamente, solo necesitamos esperar a Microsoft.Monitor
+# Nota: Los providers (Microsoft.Monitor, Microsoft.Dashboard, microsoft.insights) 
+# se registran automáticamente por Azure cuando se crean los recursos que los necesitan.
+# No es necesario registrarlos manualmente.
 resource "azurerm_monitor_workspace" "prometheus" {
-  depends_on = [azurerm_resource_provider_registration.monitor]
   name                = local.prometheus_ws_name
   resource_group_name = var.resource_group_name
   location            = var.location
@@ -50,7 +31,6 @@ resource "azurerm_monitor_workspace" "prometheus" {
 
 # Azure Managed Grafana
 resource "azurerm_dashboard_grafana" "grafana" {
-  depends_on = [azurerm_resource_provider_registration.dashboard]
   name                              = local.grafana_name
   resource_group_name               = var.resource_group_name
   location                          = var.location
