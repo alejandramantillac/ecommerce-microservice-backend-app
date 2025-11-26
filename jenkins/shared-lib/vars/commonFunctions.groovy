@@ -420,6 +420,17 @@ def runTrivyScans(changedServices, registry, imageTag) {
     archiveArtifacts artifacts: 'trivy-reports/**/*.json', fingerprint: true, allowEmptyArchive: true
 }
 
+def runZapSecurityScan(namespace, apiGatewayUrl, reportDir) {
+    sh """
+        chmod +x jenkins/tests/zap-security-scan.sh
+        export KCFG="\${KCFG}"
+        jenkins/tests/zap-security-scan.sh "${namespace}" "${apiGatewayUrl}" "${reportDir}"
+    """
+    
+    // Archive ZAP reports
+    archiveArtifacts artifacts: 'tests/zap-reports/**/*', fingerprint: true, allowEmptyArchive: true
+}
+
 def cleanSpace() {
     sh """
         docker system prune -af               # Necesita Docker group
