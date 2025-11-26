@@ -1,5 +1,3 @@
-#!/usr/bin/env groovy
-
 /**
  * Shared variables for Jenkins pipelines
  * Single source of truth for all service configurations
@@ -393,7 +391,7 @@ def getServicesList() {
                 cpuLimit: '200m'
             ],
             healthPath: '',
-            replicas: [dev: 1, staging: 1, prod: 1]  # DaemonSet: 1 per node
+            replicas: [dev: 1, staging: 1, prod: 1]
         ]
     ]
 }
