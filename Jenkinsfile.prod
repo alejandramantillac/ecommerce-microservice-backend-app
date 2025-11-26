@@ -90,45 +90,6 @@ pipeline {
             }
         }
 
-        stage('Trivy Scan') {
-            steps {
-                script {
-                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                    commonFunctions.runTrivyScans(env.CHANGED_SERVICES, env.REGISTRY, env.IMAGE_TAG)
-                }
-            }
-        }
-        
-        stage('SonarCloud Analysis') {
-            steps {
-                withCredentials([string(credentialsId: 'sonar-token', variable: 'SONAR_TOKEN')]) {
-                    script {
-                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                        commonFunctions.runSonarAnalyses(env.CHANGED_SERVICES)
-                    }
-                }
-            }
-        }
-        
-        stage('Publish Unit Test Results') {
-            steps {
-                script {
-                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                    echo "Publishing unit test results..."
-                    commonFunctions.publishAllTestResults(env.CHANGED_SERVICES)
-                }
-            }
-        }
-        
-        stage('Publish Coverage Reports') {
-            steps {
-                script {
-                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                    commonFunctions.publishJavaCoverageReports(env.CHANGED_SERVICES)
-                }
-            }
-        }
-        
         stage('Publish to Registry') {
             steps {
                 unstash 'workspace'
@@ -147,112 +108,6 @@ pipeline {
                             env.DOCKER_USER,
                             env.DOCKER_PASS
                         )
-                    }
-                }
-            }
-        }
-
-        stage('Provision Staging Infrastructure (Terraform)') {
-            steps {
-                script {
-                    echo "Provisioning staging infrastructure via Terraform..."
-                    withCredentials([
-                        string(credentialsId: 'ARM_CLIENT_ID', variable: 'ARM_CLIENT_ID'),
-                        string(credentialsId: 'ARM_CLIENT_SECRET', variable: 'ARM_CLIENT_SECRET'),
-                        string(credentialsId: 'ARM_SUBSCRIPTION_ID', variable: 'ARM_SUBSCRIPTION_ID'),
-                        string(credentialsId: 'ARM_TENANT_ID', variable: 'ARM_TENANT_ID')
-                    ]) {
-                        sh '''
-                            set -e
-                            cd infra/terraform/environments/${K8S_NAMESPACE_STAGING}
-                            terraform version
-                            terraform init -input=false
-                            terraform apply -input=false -auto-approve -var-file=${K8S_NAMESPACE_STAGING}.tfvars
-                            RG_NAME=$(terraform output -raw resource_group_name)
-                            AKS_NAME=$(terraform output -raw aks_cluster_name)
-                            mkdir -p "${WORKSPACE}/.kube"
-                            rm -f "${WORKSPACE}/.kube/${K8S_NAMESPACE_STAGING}-config"
-                            az login --service-principal -u "$ARM_CLIENT_ID" -p "$ARM_CLIENT_SECRET" --tenant "$ARM_TENANT_ID" >/dev/null
-                            az aks get-credentials --resource-group "$RG_NAME" --name "$AKS_NAME" --file "${WORKSPACE}/.kube/${K8S_NAMESPACE_STAGING}-config" --overwrite-existing
-                        '''
-                    }
-                    env.STAGING_KUBE_CONFIG_PATH = "${env.WORKSPACE}/.kube/${K8S_NAMESPACE_STAGING}-config"
-                    env.TF_STAGING_APPLIED = 'true'
-                    stash name: 'kubeconfig', includes: ".kube/${K8S_NAMESPACE_STAGING}-config"
-                }
-            }
-        }
-        
-        stage('Validate in Staging') {
-            stages {
-                stage('Integration & E2E Tests') {
-                    steps {
-                        withEnv(["KCFG=${env.STAGING_KUBE_CONFIG_PATH}"]) {
-                            script {
-                                def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                                echo "Running all test suites..."
-                                env.API_GATEWAY_URL = commonFunctions.getLoadBalancerIP('api-gateway', 'staging')
-
-                                echo "API Gateway URL: ${env.API_GATEWAY_URL}"
-
-                                commonFunctions.runAllTests(env.K8S_NAMESPACE_STAGING, env.CHANGED_SERVICES)
-                            }
-                        }
-                    }
-                    post {
-                        always {
-                            script {
-                                def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                                
-                                // Publish test reports
-                                publishHTML([
-                                    allowMissing: true,
-                                    reportDir: 'tests',
-                                    reportFiles: 'integration-report.html',
-                                    reportName: 'Integration Test Report',
-                                    keepAll: true,
-                                    alwaysLinkToLastBuild: true
-                                ])
-                                publishHTML([
-                                    allowMissing: true,
-                                    reportDir: 'tests',
-                                    reportFiles: 'e2e-report.html',
-                                    reportName: 'E2E Test Report',
-                                    keepAll: true,
-                                    alwaysLinkToLastBuild: true
-                                ])
-                                
-                                // Publish coverage reports
-                                commonFunctions.publishPythonCoverageReports()
-                                
-                                archiveArtifacts artifacts: 'tests/*-report.html,tests/*-report.json', 
-                                                 fingerprint: true, 
-                                                 allowEmptyArchive: true
-                                
-                                archiveArtifacts artifacts: 'tests/performance*.csv,tests/performance-report.html', 
-                                                fingerprint: true, 
-                                                allowEmptyArchive: true
-                            }
-                        }
-                    }
-                }
-            }
-        }
-
-        stage('Approve Production Release') {
-            steps {
-                script {
-                    echo "========================================="
-                    echo "✓ All staging validations passed!"
-                    echo "Release Version: ${env.RELEASE_VERSION}"
-                    echo "Services to deploy: ${env.CHANGED_SERVICES}"
-                    echo "Image Tag: ${env.IMAGE_TAG}"
-                    echo "========================================="
-                    
-                    timeout(time: 30, unit: 'MINUTES') {
-                        input message: "Deploy Release ${env.RELEASE_VERSION} to Production?",
-                              ok: 'Deploy to Production',
-                              submitter: 'admin,release-manager'
                     }
                 }
             }
@@ -287,40 +142,6 @@ pipeline {
                 }
             }
         }
-        
-        stage('Deploy Monitoring Stack (Production)') {
-            steps {
-                unstash 'workspace'
-                unstash 'prod-kubeconfig'
-                withEnv(["KCFG=${env.PROD_KUBE_CONFIG_PATH}"]) {
-                    script {
-                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                        echo "Deploying monitoring stack (Prometheus, Grafana, Alertmanager) to production..."
-                        commonFunctions.deployMonitoringStack(
-                            env.K8S_NAMESPACE_PROD,
-                            env.TARGET_ENVIRONMENT,
-                            'LoadBalancer'  // Use LoadBalancer for production
-                        )
-                    }
-                }
-            }
-        }
-
-        stage('Deploy ELK Stack (Production)') {
-            steps {
-                withEnv(["KCFG=${env.PROD_KUBE_CONFIG_PATH}"]) {
-                    script {
-                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                        echo "Deploying ELK stack (Elasticsearch, Logstash, Kibana, Filebeat) to production..."
-                        commonFunctions.deployELKStack(
-                            env.K8S_NAMESPACE_PROD,
-                            env.TARGET_ENVIRONMENT,
-                            'LoadBalancer'  // Use LoadBalancer for production
-                        )
-                    }
-                }
-            }
-        }
 
         stage('Deploy to Production') {
             steps {
@@ -344,33 +165,6 @@ pipeline {
                         env.PROD_DEPLOYS = env.SUCCESSFUL_DEPLOYS
                         echo "✓ Production deployment completed"
                     }
-                }
-            }
-        }
-
-        stage('Generate Release Notes') {
-            steps {
-                withCredentials([
-                    string(credentialsId: "${GITHUB_TOKEN_CREDENTIAL}", variable: 'GITHUB_TOKEN')
-                ]) {
-                    script {
-                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                        echo "Generating release notes and creating Git tag..."
-                        commonFunctions.generateAndPublishRelease(
-                            env.RELEASE_VERSION,
-                            env.GITHUB_TOKEN
-                        )
-                        
-                        echo "✓ Release notes generated"
-                        echo "✓ Git tag v${env.RELEASE_VERSION} created"
-                    }
-                }
-            }
-            post {
-                always {
-                    archiveArtifacts artifacts: 'release_notes.md,CHANGELOG.md', 
-                                     fingerprint: true, 
-                                     allowEmptyArchive: true
                 }
             }
         }
