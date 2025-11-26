@@ -68,6 +68,17 @@ pipeline {
             }
         }
 
+        stage('OWASP ZAP Security Scan') {
+            steps {
+                script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    // Let the script determine the API Gateway URL automatically
+                    // It will try LoadBalancer, then ClusterIP if needed
+                    commonFunctions.runZapSecurityScan(env.K8S_NAMESPACE, '', env.SECURITY_REPORT_DIR)
+                }
+            }
+        }
+
         stage('Generate Security Dashboard') {
             steps {
                 script {
@@ -81,6 +92,7 @@ pipeline {
             steps {
                 script {
                     archiveArtifacts artifacts: "${env.SECURITY_REPORT_DIR}/**/*", fingerprint: true, allowEmptyArchive: false
+                    archiveArtifacts artifacts: "tests/zap-reports/**/*", fingerprint: true, allowEmptyArchive: true
                     if (env.BUILD_URL) {
                         def dashboardUrl = "${env.BUILD_URL}artifact/${env.SECURITY_DASHBOARD}"
                         echo "Security dashboard available at: ${dashboardUrl}"

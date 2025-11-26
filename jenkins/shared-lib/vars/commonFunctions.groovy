@@ -151,6 +151,22 @@ def ensureNamespace(namespace) {
     """
 }
 
+def applySecrets(environment, namespace) {
+    def secretFile = "k8s/base/secrets/03-secret-${environment}.yaml"
+    
+    echo "Applying Secrets from: ${secretFile}"
+    
+    sh """
+        if [ -f "${secretFile}" ]; then
+            kubectl --kubeconfig="\${KCFG}" apply -f "${secretFile}"
+            echo "✓ Secrets applied successfully for ${environment}"
+        else
+            echo "⚠ Warning: Secret file not found: ${secretFile}"
+            echo "Services will use default/fallback secrets (not recommended for production)"
+        fi
+    """
+}
+
 def applyConfigMap(environment, namespace) {
     def configMapFile = "k8s/base/02-configmap-${environment}.yaml"
     
@@ -690,6 +706,17 @@ def runTrivyScans(changedServices, registry, imageTag) {
     scanImagesWithTrivy(imagesFile, reportDir, summaryCsvPath, summaryJsonPath, severity, statusPath)
 
     archiveArtifacts artifacts: 'trivy-reports/**/*.json', fingerprint: true, allowEmptyArchive: true
+}
+
+def runZapSecurityScan(namespace, apiGatewayUrl, reportDir) {
+    sh """
+        chmod +x jenkins/tests/zap-security-scan.sh
+        export KCFG="\${KCFG}"
+        jenkins/tests/zap-security-scan.sh "${namespace}" "${apiGatewayUrl}" "${reportDir}"
+    """
+    
+    // Archive ZAP reports
+    archiveArtifacts artifacts: 'tests/zap-reports/**/*', fingerprint: true, allowEmptyArchive: true
 }
 
 def cleanSpace() {

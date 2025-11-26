@@ -13,11 +13,25 @@ import com.selimhorri.app.jwt.util.JwtUtil;
 import io.jsonwebtoken.Claims;
 import io.jsonwebtoken.Jwts;
 import io.jsonwebtoken.SignatureAlgorithm;
+import lombok.extern.slf4j.Slf4j;
 
 @Component
+@Slf4j
 public class JwtUtilImpl implements JwtUtil {
 	
-	private static final String SECRET_KEY = "secret";
+	private final String SECRET_KEY;
+	
+	public JwtUtilImpl() {
+		// Leer JWT secret de variable de entorno
+		String envSecret = System.getenv("JWT_SECRET_KEY");
+		if (envSecret == null || envSecret.isEmpty()) {
+			log.warn("⚠ JWT_SECRET_KEY environment variable not set. Using default secret (NOT SECURE FOR PRODUCTION)");
+			this.SECRET_KEY = "default-secret-key-change-in-production-use-strong-random-key";
+		} else {
+			this.SECRET_KEY = envSecret;
+			log.info("✓ JWT_SECRET_KEY loaded from environment variable");
+		}
+	}
 	
 	@Override
 	public String extractUsername(final String token) {
