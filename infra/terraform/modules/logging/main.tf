@@ -20,6 +20,26 @@ locals {
   kibana_app_name        = "${local.name_prefix_short}-kibana"
 }
 
+# Registrar Microsoft.App para Azure Container Apps
+# Nota: Este provider NO se registra automáticamente, debe registrarse manualmente
+resource "azurerm_resource_provider_registration" "app" {
+  name = "Microsoft.App"
+  
+  lifecycle {
+    # Evitar que Terraform intente desregistrar el provider
+    prevent_destroy = true
+  }
+}
+
+# Registrar Microsoft.OperationalInsights para Log Analytics (por si acaso)
+resource "azurerm_resource_provider_registration" "operational_insights" {
+  name = "Microsoft.OperationalInsights"
+  
+  lifecycle {
+    prevent_destroy = true
+  }
+}
+
 # Log Analytics Workspace para logs de Container Apps
 resource "azurerm_log_analytics_workspace" "elk" {
   name                = "${local.name_prefix_short}-elk-logs"
@@ -31,11 +51,17 @@ resource "azurerm_log_analytics_workspace" "elk" {
 }
 
 # Container Apps Environment (entorno compartido para todas las apps)
+# Depende del registro del provider Microsoft.App
 resource "azurerm_container_app_environment" "elk" {
   name                       = local.container_app_env_name
   resource_group_name        = var.resource_group_name
   location                   = var.location
   log_analytics_workspace_id = azurerm_log_analytics_workspace.elk.id
+  
+  depends_on = [
+    azurerm_resource_provider_registration.app,
+    azurerm_resource_provider_registration.operational_insights
+  ]
   
   # Integración con VNet para conectividad privada con AKS (opcional)
   # Nota: Si se proporciona, la subnet debe estar dedicada para Container Apps
