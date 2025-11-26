@@ -40,10 +40,6 @@ data:
           scopes:
             - 'https://monitor.azure.com/.default'
 
-    # Load rules once and periodically evaluate them
-    rule_files:
-      - "/etc/prometheus/rules/*.yml"
-
     # Scrape configurations
     scrape_configs:
       # Prometheus self-monitoring
