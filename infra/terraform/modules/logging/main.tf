@@ -22,20 +22,12 @@ locals {
 
 # Registrar Microsoft.App para Azure Container Apps
 # Nota: Este provider NO se registra automáticamente, debe registrarse manualmente
+# Microsoft.OperationalInsights se registra automáticamente por Terraform, no necesita registro manual
 resource "azurerm_resource_provider_registration" "app" {
   name = "Microsoft.App"
   
   lifecycle {
     # Evitar que Terraform intente desregistrar el provider
-    prevent_destroy = true
-  }
-}
-
-# Registrar Microsoft.OperationalInsights para Log Analytics (por si acaso)
-resource "azurerm_resource_provider_registration" "operational_insights" {
-  name = "Microsoft.OperationalInsights"
-  
-  lifecycle {
     prevent_destroy = true
   }
 }
@@ -59,8 +51,7 @@ resource "azurerm_container_app_environment" "elk" {
   log_analytics_workspace_id = azurerm_log_analytics_workspace.elk.id
   
   depends_on = [
-    azurerm_resource_provider_registration.app,
-    azurerm_resource_provider_registration.operational_insights
+    azurerm_resource_provider_registration.app
   ]
   
   # Integración con VNet para conectividad privada con AKS (opcional)
