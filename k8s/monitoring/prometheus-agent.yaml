@@ -1,0 +1,145 @@
+# Prometheus Agent - Versión ligera que solo scrapea y envía a Azure
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: prometheus-agent
+  namespace: ${NAMESPACE}
+  labels:
+    app: prometheus-agent
+    component: monitoring
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: prometheus-agent
+  template:
+    metadata:
+      labels:
+        app: prometheus-agent
+        component: monitoring
+    spec:
+      serviceAccountName: prometheus-agent
+      containers:
+        - name: prometheus-agent
+          image: prom/prometheus:v2.48.0
+          imagePullPolicy: IfNotPresent
+          args:
+            - '--config.file=/etc/prometheus/prometheus.yml'
+            - '--storage.tsdb.path=/prometheus'
+            - '--storage.tsdb.retention.time=2h'  # Solo 2 horas, datos van a Azure
+            - '--enable-feature=agent'  # Modo agente (no almacena localmente)
+            - '--enable-feature=remote-write-receiver'
+            - '--web.listen-address=0.0.0.0:9090'
+          ports:
+            - containerPort: 9090
+              name: http
+          volumeMounts:
+            - name: prometheus-config
+              mountPath: /etc/prometheus
+              readOnly: true
+            - name: azure-credentials
+              mountPath: /etc/azure
+              readOnly: true
+          env:
+            - name: AZURE_PROMETHEUS_INGESTION_ENDPOINT
+              valueFrom:
+                secretKeyRef:
+                  name: azure-monitor-credentials
+                  key: ingestion-endpoint
+            - name: AZURE_CLIENT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: azure-monitor-credentials
+                  key: client-id
+            - name: AZURE_TENANT_ID
+              valueFrom:
+                secretKeyRef:
+                  name: azure-monitor-credentials
+                  key: tenant-id
+            - name: AZURE_CLIENT_SECRET
+              valueFrom:
+                secretKeyRef:
+                  name: azure-monitor-credentials
+                  key: client-secret
+          resources:
+            requests:
+              memory: "128Mi"  # Mucho más ligero que Prometheus completo
+              cpu: "100m"
+            limits:
+              memory: "256Mi"
+              cpu: "200m"
+          readinessProbe:
+            httpGet:
+              path: /-/ready
+              port: 9090
+            initialDelaySeconds: 10
+            periodSeconds: 10
+          livenessProbe:
+            httpGet:
+              path: /-/healthy
+              port: 9090
+            initialDelaySeconds: 20
+            periodSeconds: 30
+      volumes:
+        - name: prometheus-config
+          configMap:
+            name: prometheus-config
+        - name: azure-credentials
+          secret:
+            secretName: azure-monitor-credentials
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: prometheus-agent
+  namespace: ${NAMESPACE}
+  labels:
+    app: prometheus-agent
+spec:
+  selector:
+    app: prometheus-agent
+  ports:
+    - port: 9090
+      targetPort: 9090
+      name: http
+  type: ClusterIP
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: prometheus-agent
+  namespace: ${NAMESPACE}
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRole
+metadata:
+  name: prometheus-agent
+rules:
+  - apiGroups: [""]
+    resources:
+      - nodes
+      - nodes/proxy
+      - services
+      - endpoints
+      - pods
+    verbs: ["get", "list", "watch"]
+  - apiGroups:
+      - extensions
+      - networking.k8s.io
+    resources:
+      - ingresses
+    verbs: ["get", "list", "watch"]
+---
+apiVersion: rbac.authorization.k8s.io/v1
+kind: ClusterRoleBinding
+metadata:
+  name: prometheus-agent
+roleRef:
+  apiGroup: rbac.authorization.k8s.io
+  kind: ClusterRole
+  name: prometheus-agent
+subjects:
+  - kind: ServiceAccount
+    name: prometheus-agent
+    namespace: ${NAMESPACE}
+

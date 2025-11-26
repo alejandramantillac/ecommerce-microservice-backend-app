@@ -27,3 +27,25 @@ output "storage_account_name" {
   value = module.storage.storage_account_name
 }
 
+output "prometheus_workspace_id" {
+  value = module.monitoring.prometheus_workspace_id
+}
+
+output "prometheus_ingestion_endpoint" {
+  value       = module.monitoring.prometheus_ingestion_endpoint
+  sensitive   = true
+}
+
+output "prometheus_query_endpoint" {
+  value       = module.monitoring.prometheus_query_endpoint
+  sensitive   = true
+}
+
+output "grafana_endpoint" {
+  value = module.monitoring.grafana_endpoint
+}
+
+output "grafana_name" {
+  value = module.monitoring.grafana_name
+}
+

@@ -188,6 +188,84 @@ def getAndConfigureKubeConfigFromTerraform(envNamespace, armClientId, armClientS
     return "${env.WORKSPACE}/.kube/security-${envNamespace}"
 }
 
+/**
+ * Get Terraform output value
+ * @param envNamespace Environment namespace (staging/prod)
+ * @param outputName Name of the Terraform output
+ * @return Output value as string
+ */
+def getTerraformOutput(envNamespace, outputName) {
+    return sh(
+        script: """
+            cd infra/terraform/environments/${envNamespace}
+            terraform output -raw ${outputName} 2>/dev/null || echo ""
+        """,
+        returnStdout: true
+    ).trim()
+}
+
+/**
+ * Get all monitoring-related outputs from Terraform
+ * @param envNamespace Environment namespace (staging/prod)
+ * @return Map with monitoring outputs
+ */
+def getMonitoringOutputs(envNamespace) {
+    return [
+        prometheusIngestionEndpoint: getTerraformOutput(envNamespace, 'prometheus_ingestion_endpoint'),
+        prometheusQueryEndpoint: getTerraformOutput(envNamespace, 'prometheus_query_endpoint'),
+        grafanaEndpoint: getTerraformOutput(envNamespace, 'grafana_endpoint')
+    ]
+}
+
+/**
+ * Save monitoring outputs to file for later use
+ * @param envNamespace Environment namespace
+ * @param outputs Map with monitoring outputs
+ */
+def saveMonitoringOutputs(envNamespace, outputs) {
+    def outputFile = "${env.WORKSPACE}/.monitoring-${envNamespace}.env"
+    sh """
+        echo "PROMETHEUS_INGESTION_ENDPOINT=${outputs.prometheusIngestionEndpoint}" > "${outputFile}"
+        echo "PROMETHEUS_QUERY_ENDPOINT=${outputs.prometheusQueryEndpoint}" >> "${outputFile}"
+        echo "GRAFANA_ENDPOINT=${outputs.grafanaEndpoint}" >> "${outputFile}"
+    """
+    return outputFile
+}
+
+/**
+ * Load monitoring outputs from file
+ * @param envNamespace Environment namespace
+ * @return Map with monitoring outputs
+ */
+def loadMonitoringOutputs(envNamespace) {
+    def outputFile = "${env.WORKSPACE}/.monitoring-${envNamespace}.env"
+    if (!fileExists(outputFile)) {
+        echo "Warning: Monitoring outputs file not found: ${outputFile}"
+        return [:]
+    }
+    
+    def ingestionEndpoint = sh(
+        script: "grep PROMETHEUS_INGESTION_ENDPOINT '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
+    
+    def queryEndpoint = sh(
+        script: "grep PROMETHEUS_QUERY_ENDPOINT '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
+    
+    def grafanaEndpoint = sh(
+        script: "grep GRAFANA_ENDPOINT '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
+    
+    return [
+        prometheusIngestionEndpoint: ingestionEndpoint,
+        prometheusQueryEndpoint: queryEndpoint,
+        grafanaEndpoint: grafanaEndpoint
+    ]
+}
+
 def rollbackServices(namespace, services, kubeconfigPath) {
     if (!services?.trim()) {
         echo "No services provided for rollback."
@@ -624,66 +702,74 @@ def cleanSpace() {
 }
 
 /**
- * Deploy Monitoring Stack (Prometheus, Grafana, Alertmanager)
+ * Deploy Prometheus Agent (lightweight) that sends metrics to Azure Monitor Workspace
  * @param namespace Kubernetes namespace
  * @param environment Environment name (staging/prod)
- * @param serviceType Service type (NodePort/LoadBalancer)
+ * @param azureIngestionEndpoint Azure Monitor Workspace ingestion endpoint
+ * @param azureClientId Azure AD client ID for authentication
+ * @param azureTenantId Azure AD tenant ID
+ * @param azureClientSecret Azure AD client secret
  */
-def deployMonitoringStack(namespace, environment, serviceType = 'NodePort') {
+def deployPrometheusAgent(namespace, environment, azureIngestionEndpoint, azureClientId, azureTenantId, azureClientSecret) {
     echo "========================================="
-    echo "Deploying Monitoring Stack"
+    echo "Deploying Prometheus Agent"
     echo "========================================="
     echo "Namespace: ${namespace}"
     echo "Environment: ${environment}"
-    echo "Service Type: ${serviceType}"
+    echo "Azure Ingestion Endpoint: ${azureIngestionEndpoint}"
     echo "========================================="
     
-    // Determine NodePorts based on environment
-    def prometheusPort = environment == 'prod' ? '30909' : '30909'
-    def grafanaPort = environment == 'prod' ? '30300' : '30300'
-    def alertmanagerPort = environment == 'prod' ? '30933' : '30933'
-    
-    // Deploy Prometheus
-    echo ""
-    echo "Deploying Prometheus..."
     sh """
-        chmod +x jenkins/scripts/deploy/deploy-prometheus.sh
+        chmod +x jenkins/scripts/deploy/deploy-prometheus-agent.sh
         export KCFG="\${KCFG:-}"
-        jenkins/scripts/deploy/deploy-prometheus.sh "${namespace}" "${environment}" "${serviceType}" "${prometheusPort}"
-    """
-    
-    // Wait a bit for Prometheus to be ready
-    sleep(time: 10, unit: 'SECONDS')
-    
-    // Deploy Alertmanager (depends on Prometheus for alert rules)
-    echo ""
-    echo "Deploying Alertmanager..."
-    sh """
-        chmod +x jenkins/scripts/deploy/deploy-alertmanager.sh
-        export KCFG="\${KCFG:-}"
-        jenkins/scripts/deploy/deploy-alertmanager.sh "${namespace}" "${environment}" "${serviceType}" "${alertmanagerPort}"
-    """
-    
-    // Deploy Grafana (depends on Prometheus as datasource)
-    echo ""
-    echo "Deploying Grafana..."
-    sh """
-        chmod +x jenkins/scripts/deploy/deploy-grafana.sh
-        export KCFG="\${KCFG:-}"
-        jenkins/scripts/deploy/deploy-grafana.sh "${namespace}" "${environment}" "${serviceType}" "${grafanaPort}"
+        jenkins/scripts/deploy/deploy-prometheus-agent.sh \
+            "${namespace}" \
+            "${environment}" \
+            "${azureIngestionEndpoint}" \
+            "${azureClientId}" \
+            "${azureTenantId}" \
+            "${azureClientSecret}"
     """
     
     echo ""
+    echo "✓ Prometheus Agent deployed successfully"
+    echo "  Metrics are being sent to Azure Monitor Workspace"
+    
+    // Verify deployment
+    echo ""
+    echo "Verifying deployment..."
+    sh """
+        kubectl --kubeconfig="\${KCFG}" get pods -n "${namespace}" -l app=prometheus-agent || true
+    """
+}
+
+/**
+ * Migrate Grafana dashboards to Azure Managed Grafana
+ * @param grafanaEndpoint Azure Managed Grafana endpoint URL
+ * @param grafanaApiKey API key for Azure Managed Grafana
+ * @param prometheusQueryEndpoint Prometheus query endpoint for datasource configuration
+ * @param dashboardsDir Directory containing dashboard JSON files
+ */
+def migrateGrafanaDashboards(grafanaEndpoint, grafanaApiKey, prometheusQueryEndpoint = '', dashboardsDir = 'k8s/monitoring/grafana-dashboards') {
     echo "========================================="
-    echo "Monitoring Stack deployment completed!"
+    echo "Migrating Grafana Dashboards"
+    echo "========================================="
+    echo "Grafana Endpoint: ${grafanaEndpoint}"
+    echo "Dashboards Directory: ${dashboardsDir}"
     echo "========================================="
     
-    // Verify deployments
-    echo ""
-    echo "Verifying monitoring stack deployments..."
     sh """
-        kubectl --kubeconfig="\${KCFG}" get pods -n "${namespace}" -l 'app in (prometheus,grafana,alertmanager)' || true
+        chmod +x jenkins/scripts/migrate-grafana-dashboards.sh
+        export AZURE_PROMETHEUS_QUERY_ENDPOINT="${prometheusQueryEndpoint}"
+        jenkins/scripts/migrate-grafana-dashboards.sh \
+            "${grafanaEndpoint}" \
+            "${grafanaApiKey}" \
+            "${dashboardsDir}"
     """
+    
+    echo ""
+    echo "✓ Dashboards migrated successfully"
+    echo "  Access them at: ${grafanaEndpoint}"
 }
 
 /**

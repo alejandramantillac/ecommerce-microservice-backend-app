@@ -30,3 +30,8 @@ output "node_resource_group" {
   description = "Resource group que contiene los nodos/recursos auxiliares."
 }
 
+output "cluster_id" {
+  value       = azurerm_kubernetes_cluster.this.id
+  description = "ID del cluster AKS."
+}
+
