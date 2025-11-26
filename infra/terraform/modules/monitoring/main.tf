@@ -29,7 +29,7 @@ resource "azurerm_resource_provider_registration" "monitor" {
 }
 
 resource "azurerm_resource_provider_registration" "insights" {
-  name = "Microsoft.Insights"
+  name = "microsoft.insights"
   
   timeouts {
     create = "10m"
