@@ -7,9 +7,20 @@ terraform {
   }
 }
 
+locals {
+  # Sanitizar nombres para cumplir con restricciones de Azure
+  # Grafana: 2-23 caracteres, solo letras, números y guiones, debe empezar con letra
+  # Acortar el prefijo si es necesario para que el nombre completo sea <= 23 caracteres
+  name_prefix_short = replace(replace(lower(var.name_prefix), "ecommerce", "ecom"), "staging", "stg")
+  grafana_name = length("${local.name_prefix_short}-grafana") > 23 ? "${substr(local.name_prefix_short, 0, 15)}-grafana" : "${local.name_prefix_short}-grafana"
+  
+  # Prometheus workspace: similar pero puede ser más largo
+  prometheus_ws_name = "${var.name_prefix}-prometheus-ws"
+}
+
 # Azure Monitor Workspace (Prometheus gestionado)
 resource "azurerm_monitor_workspace" "prometheus" {
-  name                = "${var.name_prefix}-prometheus-ws"
+  name                = local.prometheus_ws_name
   resource_group_name = var.resource_group_name
   location            = var.location
   tags                = var.tags
@@ -17,7 +28,7 @@ resource "azurerm_monitor_workspace" "prometheus" {
 
 # Azure Managed Grafana
 resource "azurerm_dashboard_grafana" "grafana" {
-  name                              = "${var.name_prefix}-grafana"
+  name                              = local.grafana_name
   resource_group_name               = var.resource_group_name
   location                          = var.location
   api_key_enabled                   = true
@@ -54,7 +65,7 @@ resource "azurerm_role_assignment" "grafana_monitor_data_publisher" {
 
 # Data Collection Rule para Prometheus scraping desde AKS
 resource "azurerm_monitor_data_collection_rule" "prometheus" {
-  name                = "${var.name_prefix}-prometheus-dcr"
+  name                = "${local.name_prefix_short}-prom-dcr"
   resource_group_name = var.resource_group_name
   location            = var.location
   kind                = "Linux"
@@ -84,7 +95,7 @@ resource "azurerm_monitor_data_collection_rule" "prometheus" {
 
 # Data Collection Endpoint para el agente
 resource "azurerm_monitor_data_collection_endpoint" "prometheus" {
-  name                = "${var.name_prefix}-prometheus-dce"
+  name                = "${local.name_prefix_short}-prom-dce"
   resource_group_name = var.resource_group_name
   location            = var.location
   kind                = "Linux"
@@ -93,7 +104,7 @@ resource "azurerm_monitor_data_collection_endpoint" "prometheus" {
 
 # Asociación del DCR con el cluster AKS
 resource "azurerm_monitor_data_collection_rule_association" "aks" {
-  name                    = "${var.name_prefix}-aks-dcr-assoc"
+  name                    = "${local.name_prefix_short}-aks-dcr"
   target_resource_id      = var.aks_cluster_id
   data_collection_rule_id = azurerm_monitor_data_collection_rule.prometheus.id
   description             = "Association for Prometheus metrics collection from AKS"
@@ -101,9 +112,9 @@ resource "azurerm_monitor_data_collection_rule_association" "aks" {
 
 # Azure Monitor Action Group para alertas
 resource "azurerm_monitor_action_group" "alerts" {
-  name                = "${var.name_prefix}-alerts-ag"
+  name                = "${local.name_prefix_short}-alerts"
   resource_group_name = var.resource_group_name
-  short_name          = "ecom-alerts"
+  short_name          = "ecom-alerts"  # Máximo 12 caracteres
   enabled             = true
 
   dynamic "email_receiver" {
