@@ -10,12 +10,16 @@ output "prometheus_workspace_name" {
 
 output "prometheus_ingestion_endpoint" {
   description = "Endpoint de ingesta de Prometheus"
-  value       = azurerm_monitor_workspace.prometheus.ingestion_endpoint
+  # Construir el endpoint usando el nombre del workspace y la región
+  # Formato para Azure Monitor Workspace con Prometheus: https://{workspace-name}.{region}.prometheus.monitor.azure.com
+  value = "https://${azurerm_monitor_workspace.prometheus.name}.${replace(lower(azurerm_monitor_workspace.prometheus.location), " ", "")}.prometheus.monitor.azure.com"
 }
 
 output "prometheus_query_endpoint" {
   description = "Endpoint de consulta de Prometheus"
-  value       = azurerm_monitor_workspace.prometheus.query_endpoint
+  # Construir el endpoint usando el nombre del workspace y la región
+  # Formato para Azure Monitor Workspace con Prometheus: https://{workspace-name}.{region}.prometheus.monitor.azure.com
+  value = "https://${azurerm_monitor_workspace.prometheus.name}.${replace(lower(azurerm_monitor_workspace.prometheus.location), " ", "")}.prometheus.monitor.azure.com"
 }
 
 output "grafana_id" {
