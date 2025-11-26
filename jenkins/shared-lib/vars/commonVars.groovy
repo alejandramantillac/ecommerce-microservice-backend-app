@@ -315,7 +315,7 @@ def getServicesList() {
             port: 5044,
             type: 'logging',
             path: 'logstash',
-            external: false,
+            external: true,
             exposure: [
                 dev: [
                     type: 'ClusterIP'
@@ -372,7 +372,7 @@ def getServicesList() {
             port: 0,
             type: 'logging',
             path: 'filebeat',
-            external: false,
+            external: true,
             exposure: [
                 dev: [
                     type: 'ClusterIP'

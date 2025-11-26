@@ -23,6 +23,7 @@ import com.selimhorri.app.dto.CredentialDto;
 import com.selimhorri.app.dto.UserDto;
 import com.selimhorri.app.exception.wrapper.UserObjectNotFoundException;
 import com.selimhorri.app.repository.UserRepository;
+import com.selimhorri.app.metrics.BusinessMetrics;
 
 /**
  * Unit tests for UserServiceImpl
@@ -34,6 +35,9 @@ class UserServiceImplTest {
 
     @Mock
     private UserRepository userRepository;
+
+    @Mock
+    private BusinessMetrics businessMetrics;
 
     @InjectMocks
     private UserServiceImpl userService;

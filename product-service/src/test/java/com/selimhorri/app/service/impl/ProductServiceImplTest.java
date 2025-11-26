@@ -21,6 +21,7 @@ import com.selimhorri.app.domain.Product;
 import com.selimhorri.app.dto.CategoryDto;
 import com.selimhorri.app.dto.ProductDto;
 import com.selimhorri.app.exception.wrapper.ProductNotFoundException;
+import com.selimhorri.app.metrics.BusinessMetrics;
 import com.selimhorri.app.repository.ProductRepository;
 
 /**
@@ -33,6 +34,9 @@ class ProductServiceImplTest {
 
     @Mock
     private ProductRepository productRepository;
+
+    @Mock
+    private BusinessMetrics businessMetrics;
 
     @InjectMocks
     private ProductServiceImpl productService;
