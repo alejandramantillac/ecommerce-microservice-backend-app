@@ -2,7 +2,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 3.80"
+      version = ">= 3.80"  # Permitir versiones más recientes que soporten Grafana v11
     }
   }
 }
@@ -30,6 +30,11 @@ resource "azurerm_monitor_workspace" "prometheus" {
 }
 
 # Azure Managed Grafana
+# IMPORTANTE: Hay una incompatibilidad: Azure requiere v11 pero el provider solo acepta v9/v10
+# Solución: Crear Grafana con Azure CLI primero (ver jenkins/scripts/setup-grafana-manual.sh)
+# Luego importar a Terraform: terraform import module.monitoring.azurerm_dashboard_grafana.grafana <resource-id>
+# 
+# Si Grafana ya existe, este recurso lo gestionará. Si no existe, debe crearse manualmente primero.
 resource "azurerm_dashboard_grafana" "grafana" {
   name                              = local.grafana_name
   resource_group_name               = var.resource_group_name
@@ -39,9 +44,15 @@ resource "azurerm_dashboard_grafana" "grafana" {
   deterministic_outbound_ip_enabled = var.grafana_sku == "Standard" ? true : false
   public_network_access_enabled     = var.grafana_public_access
   sku                               = var.grafana_sku
-  grafana_major_version             = "10"  # Máximo soportado por el provider, Azure usará la versión compatible con el SKU
+  # Usar "10" temporalmente - Azure lo actualizará a "11" automáticamente o debe crearse con CLI primero
+  grafana_major_version             = "10"
   # zone_redundancy_enabled solo está disponible en SKU Standard
   zone_redundancy_enabled           = var.grafana_sku == "Standard" ? var.grafana_zone_redundancy : false
+  
+  lifecycle {
+    # Ignorar cambios en la versión ya que Azure la gestiona
+    ignore_changes = [grafana_major_version]
+  }
 
   identity {
     type = "SystemAssigned"
