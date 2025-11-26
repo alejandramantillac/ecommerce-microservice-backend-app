@@ -120,7 +120,17 @@ fi
 echo ""
 echo "Step 4: Deploying Prometheus Agent..."
 if substitute_vars k8s/monitoring/prometheus-agent.yaml | kubectl --kubeconfig="$KCFG" apply -f -; then
-    echo "✓ Prometheus Agent deployed"
+    echo "✓ Prometheus Agent manifest applied"
+    # Force rollout restart to ensure new configuration is applied
+    echo "Forcing rollout restart to apply new configuration..."
+    if kubectl --kubeconfig="$KCFG" rollout restart deployment/prometheus-agent -n "${NAMESPACE}" 2>/dev/null; then
+        echo "✓ Rollout restart initiated"
+    else
+        # If rollout restart fails, delete pods to force recreation
+        echo "Rollout restart not available, deleting pods to force recreation..."
+        kubectl --kubeconfig="$KCFG" delete pods -n "${NAMESPACE}" -l app=prometheus-agent --grace-period=0 --force 2>/dev/null || true
+        echo "✓ Old pods deleted, new pods will be created"
+    fi
 else
     echo "✗ Failed to deploy Prometheus Agent"
     exit 1
