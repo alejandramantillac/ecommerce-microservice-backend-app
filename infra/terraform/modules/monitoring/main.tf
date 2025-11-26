@@ -35,11 +35,13 @@ resource "azurerm_dashboard_grafana" "grafana" {
   resource_group_name               = var.resource_group_name
   location                          = var.location
   api_key_enabled                   = true
-  deterministic_outbound_ip_enabled = true
+  # deterministic_outbound_ip_enabled solo está disponible en SKU Standard
+  deterministic_outbound_ip_enabled = var.grafana_sku == "Standard" ? true : false
   public_network_access_enabled     = var.grafana_public_access
   sku                               = var.grafana_sku
   grafana_major_version             = "10"  # Máximo soportado por el provider, Azure usará la versión compatible con el SKU
-  zone_redundancy_enabled           = var.grafana_zone_redundancy
+  # zone_redundancy_enabled solo está disponible en SKU Standard
+  zone_redundancy_enabled           = var.grafana_sku == "Standard" ? var.grafana_zone_redundancy : false
 
   identity {
     type = "SystemAssigned"
