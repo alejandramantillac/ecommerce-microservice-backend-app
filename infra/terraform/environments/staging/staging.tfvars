@@ -35,3 +35,6 @@ db_sku_name              = "Standard_D2s_v3"
 db_storage_mb            = 32768
 db_backup_retention_days = 7
 
+# Monitoring - Usar Essential para staging (soporta versión 10, más económico)
+grafana_sku = "Essential"
+
