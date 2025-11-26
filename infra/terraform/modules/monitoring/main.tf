@@ -18,8 +18,40 @@ locals {
   prometheus_ws_name = "${var.name_prefix}-prometheus-ws"
 }
 
+# Registrar los providers necesarios si no están registrados
+resource "azurerm_resource_provider_registration" "monitor" {
+  name = "Microsoft.Monitor"
+  
+  timeouts {
+    create = "10m"
+    update = "10m"
+  }
+}
+
+resource "azurerm_resource_provider_registration" "insights" {
+  name = "Microsoft.Insights"
+  
+  timeouts {
+    create = "10m"
+    update = "10m"
+  }
+}
+
+resource "azurerm_resource_provider_registration" "dashboard" {
+  name = "Microsoft.Dashboard"
+  
+  timeouts {
+    create = "10m"
+    update = "10m"
+  }
+}
+
 # Azure Monitor Workspace (Prometheus gestionado)
 resource "azurerm_monitor_workspace" "prometheus" {
+  depends_on = [
+    azurerm_resource_provider_registration.monitor,
+    azurerm_resource_provider_registration.insights
+  ]
   name                = local.prometheus_ws_name
   resource_group_name = var.resource_group_name
   location            = var.location
@@ -28,6 +60,7 @@ resource "azurerm_monitor_workspace" "prometheus" {
 
 # Azure Managed Grafana
 resource "azurerm_dashboard_grafana" "grafana" {
+  depends_on = [azurerm_resource_provider_registration.dashboard]
   name                              = local.grafana_name
   resource_group_name               = var.resource_group_name
   location                          = var.location
