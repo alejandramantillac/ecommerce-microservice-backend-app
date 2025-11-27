@@ -1,0 +1,39 @@
+# Ingress Resource for Staging Environment
+# Routes external HTTPS traffic to api-gateway service
+# Apply: kubectl apply -f k8s/ingress/03-ingress-staging.yaml
+
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-gateway-ingress
+  namespace: staging
+  labels:
+    environment: staging
+    managed-by: jenkins
+  annotations:
+    # Force HTTPS redirect
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    # Enable CORS
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - api-staging.local  # Change to your actual domain or use IP directly
+    secretName: tls-secret-staging
+  rules:
+  - host: api-staging.local  # Change to your actual domain or use IP directly
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 8080
+

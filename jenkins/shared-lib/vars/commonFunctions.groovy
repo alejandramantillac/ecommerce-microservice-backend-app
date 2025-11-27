@@ -35,7 +35,7 @@ def printDeploymentInfo(environment, imageTag, namespace = null) {
 
 def detectChangedServices(services) {
     // Build service list as comma-separated paths
-    def servicePaths = services.findAll { it.path }.collect { it.path }.join(',')
+    def servicePaths = services.collect { it.path ?: it.name }.join(',')
     
     // Use the shell script to detect changes
     def changedServicesList = sh(
@@ -95,53 +95,61 @@ def pushDockerImages(registry, imageTag, latestTag, changedServices, dockerUser,
 
 def deployToKubernetes(environment, namespace, registry, imageTag, changedServices) {
     def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
-    def deployedServices = []
-
+    def allServices = commonVars.getServicesList()
+    
     echo "========================================="
     echo "Deploying services to ${environment}"
     echo "Namespace: ${namespace}"
     echo "========================================="
-
+    
+    // PASO 0: Ensure namespace exists before applying resources
     ensureNamespace(namespace)
 
-    echo "Step 1: Applying ConfigMap for ${environment}..."
+    // PASO 1: Apply Secrets first (before ConfigMap)
+    echo "Step 1: Applying Secrets for ${environment}..."
+    applySecrets(environment, namespace)
+
+    // PASO 2: Apply ConfigMap (services depend on it)
+    echo "Step 2: Applying ConfigMap for ${environment}..."
     applyConfigMap(environment, namespace)
-
-    def deployListInOrder = [
-        commonVars.getCoreServices(),
-        commonVars.getMonitoringServices()
-    ]
-
-    deployListInOrder.each { group ->
-        group.each { service ->
-            if (changedServices.contains(service.name)) {
-                deployServiceWithTracking(service, environment, namespace, registry, imageTag, deployedServices)
-            }
+    
+    // PASO 3: Deploy core services (in order)
+    echo "Step 3: Deploying core services..."
+    def coreServices = commonVars.getCoreServices()
+    for (service in coreServices) {
+        if (changedServices.contains(service.name)) {
+            deployService(service, environment, namespace, registry, imageTag)
         }
     }
 
-    echo "Step 4: Deploying business services..."
+    // PASO 4: Deploy monitoring services
+    echo "Step 4: Deploying monitoring services..."
+    def monitoringServices = commonVars.getMonitoringServices()
+    for (service in monitoringServices) {
+        if (changedServices.contains(service.name)) {
+            deployService(service, environment, namespace, registry, imageTag)
+        }
+    }
+    
+    // PASO 5: Deploy business services in parallel
+    echo "Step 5: Deploying business services..."
     def businessServices = commonVars.getBusinessServices()
-    def businessStages = [:]
+    def businessDeployStages = [:]
     businessServices.each { service ->
         if (changedServices.contains(service.name)) {
-            def svc = service
-            businessStages["Deploy ${svc.name}"] = {
-                deployServiceWithTracking(svc, environment, namespace, registry, imageTag, deployedServices)
+            businessDeployStages["Deploy ${service.name}"] = {
+                deployService(service, environment, namespace, registry, imageTag)
             }
         }
     }
-    if (!businessStages.isEmpty()) {
-        parallel businessStages
+    
+    if (!businessDeployStages.isEmpty()) {
+        parallel businessDeployStages
     }
-
-    if (!deployedServices.isEmpty()) {
-        env.SUCCESSFUL_DEPLOYS = deployedServices.join(',')
-        echo "Services deployed successfully: ${env.SUCCESSFUL_DEPLOYS}"
-    } else {
-        env.SUCCESSFUL_DEPLOYS = ''
-        echo "No services were deployed in this stage."
-    }
+    
+    // PASO 6: Apply Ingress (after services are deployed)
+    echo "Step 6: Applying Ingress for ${environment}..."
+    applyIngress(environment, namespace)
 }
 
 def ensureNamespace(namespace) {
@@ -168,7 +176,7 @@ def applySecrets(environment, namespace) {
 }
 
 def applyConfigMap(environment, namespace) {
-    def configMapFile = "k8s/base/02-configmap-${environment}.yaml"
+    def configMapFile = "k8s/02-configmap-${environment}.yaml"
     
     echo "Applying ConfigMap from: ${configMapFile}"
     
@@ -179,6 +187,22 @@ def applyConfigMap(environment, namespace) {
         else
             echo "⚠ Warning: ConfigMap file not found: ${configMapFile}"
             echo "Services may fail if they depend on ConfigMap values"
+        fi
+    """
+}
+
+def applyIngress(environment, namespace) {
+    def ingressFile = "k8s/ingress/03-ingress-${environment}.yaml"
+    
+    echo "Applying Ingress from: ${ingressFile}"
+    
+    sh """
+        if [ -f "${ingressFile}" ]; then
+            kubectl --kubeconfig="\${KCFG}" apply -f "${ingressFile}"
+            echo "✓ Ingress applied successfully for ${environment}"
+        else
+            echo "⚠ Warning: Ingress file not found: ${ingressFile}"
+            echo "Services will be accessible via LoadBalancer (if configured)"
         fi
     """
 }
@@ -202,109 +226,6 @@ def getAndConfigureKubeConfigFromTerraform(envNamespace, armClientId, armClientS
         """
     }
     return "${env.WORKSPACE}/.kube/security-${envNamespace}"
-}
-
-/**
- * Get Terraform output value
- * @param envNamespace Environment namespace (staging/prod)
- * @param outputName Name of the Terraform output
- * @return Output value as string
- */
-def getTerraformOutput(envNamespace, outputName) {
-    return sh(
-        script: """
-            cd infra/terraform/environments/${envNamespace}
-            terraform output -raw ${outputName} 2>/dev/null || echo ""
-        """,
-        returnStdout: true
-    ).trim()
-}
-
-/**
- * Get all monitoring-related outputs from Terraform
- * @param envNamespace Environment namespace (staging/prod)
- * @return Map with monitoring outputs
- */
-def getMonitoringOutputs(envNamespace) {
-    return [
-        prometheusIngestionEndpoint: getTerraformOutput(envNamespace, 'prometheus_ingestion_endpoint'),
-        prometheusQueryEndpoint: getTerraformOutput(envNamespace, 'prometheus_query_endpoint'),
-        grafanaEndpoint: getTerraformOutput(envNamespace, 'grafana_endpoint')
-    ]
-}
-
-/**
- * Save monitoring outputs to file for later use
- * @param envNamespace Environment namespace
- * @param outputs Map with monitoring outputs
- */
-def saveMonitoringOutputs(envNamespace, outputs) {
-    def outputFile = "${env.WORKSPACE}/.monitoring-${envNamespace}.env"
-    sh """
-        echo "PROMETHEUS_INGESTION_ENDPOINT=${outputs.prometheusIngestionEndpoint}" > "${outputFile}"
-        echo "PROMETHEUS_QUERY_ENDPOINT=${outputs.prometheusQueryEndpoint}" >> "${outputFile}"
-        echo "GRAFANA_ENDPOINT=${outputs.grafanaEndpoint}" >> "${outputFile}"
-    """
-    return outputFile
-}
-
-/**
- * Load monitoring outputs from file
- * @param envNamespace Environment namespace
- * @return Map with monitoring outputs
- */
-def loadMonitoringOutputs(envNamespace) {
-    def outputFile = "${env.WORKSPACE}/.monitoring-${envNamespace}.env"
-    if (!fileExists(outputFile)) {
-        echo "Warning: Monitoring outputs file not found: ${outputFile}"
-        return [:]
-    }
-    
-    def ingestionEndpoint = sh(
-        script: "grep PROMETHEUS_INGESTION_ENDPOINT '${outputFile}' | cut -d= -f2",
-        returnStdout: true
-    ).trim()
-    
-    def queryEndpoint = sh(
-        script: "grep PROMETHEUS_QUERY_ENDPOINT '${outputFile}' | cut -d= -f2",
-        returnStdout: true
-    ).trim()
-    
-    def grafanaEndpoint = sh(
-        script: "grep GRAFANA_ENDPOINT '${outputFile}' | cut -d= -f2",
-        returnStdout: true
-    ).trim()
-    
-    return [
-        prometheusIngestionEndpoint: ingestionEndpoint,
-        prometheusQueryEndpoint: queryEndpoint,
-        grafanaEndpoint: grafanaEndpoint
-    ]
-}
-
-def rollbackServices(namespace, services, kubeconfigPath) {
-    if (!services?.trim()) {
-        echo "No services provided for rollback."
-        return
-    }
-    if (!kubeconfigPath?.trim()) {
-        echo "No kubeconfig path provided; rollback skipped."
-        return
-    }
-
-    def serviceList = services.split(',').collect { it.trim() }.findAll { it }
-    if (serviceList.isEmpty()) {
-        echo "Service list empty after parsing; rollback skipped."
-        return
-    }
-
-    sh """
-        chmod +x jenkins/scripts/rollback-services.sh
-        jenkins/scripts/rollback-services.sh \
-            --kubeconfig "${kubeconfigPath}" \
-            --namespace "${namespace}" \
-            --services "${serviceList.join(',')}"
-    """
 }
 
 def collectPodImages(namespace, kubeconfigPath, reportDir) {
@@ -350,11 +271,6 @@ def deployService(serviceConfig, environment, namespace, registry, imageTag) {
     """
 }
 
-def deployServiceWithTracking(serviceConfig, environment, namespace, registry, imageTag, deployedServicesRef) {
-    deployService(serviceConfig, environment, namespace, registry, imageTag)
-    deployedServicesRef << serviceConfig.name
-}
-
 def getLoadBalancerIP(serviceName, namespace) {
     def ip = sh(
         script: """
@@ -367,129 +283,49 @@ def getLoadBalancerIP(serviceName, namespace) {
     return ip
 }
 
-def runAllTests(namespace, changedServices) {
-    def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
-    
+def runAllTests(namespace) {
     def stagingGatewayIP = getLoadBalancerIP('api-gateway', 'staging')
     def apiGatewayUrl = "http://${stagingGatewayIP}:8080"
 
-    def integrationTests = []
-    def e2eTests = []
-    def performanceServices = ''
-
-    def serviceList = changedServices.split(',')
-    for (serviceName in serviceList) {
-        def service = serviceName.trim()
-        def serviceConfig = commonVars.getServiceConfig(service)
-        if (serviceConfig?.testsIntegration) {
-            integrationTests.addAll(serviceConfig.testsIntegration)
-        }
-        if (serviceConfig?.testsE2E) {
-            e2eTests.addAll(serviceConfig.testsE2E)
-        }
-        performanceServices += service + ','
-    }
-    
-    // Remove duplicates from e2eTests
-    e2eTests = e2eTests.unique()
-    
-    // If no E2E tests found, use default
-    if (e2eTests.isEmpty()) {
-        e2eTests = ["e2e/test_user_flow.py"]
-    }
-
     def testStages = [
         'Integration Tests': {
-            runIntegrationTests(namespace, apiGatewayUrl, integrationTests)
+            runIntegrationTests(namespace, apiGatewayUrl)
         },
         'E2E Tests': {
-            runE2ETests(namespace, apiGatewayUrl, e2eTests)
+            runE2ETests(namespace, apiGatewayUrl)
         },
         'Performance Tests': {
-            runPerformanceTests(namespace, apiGatewayUrl, performanceServices)
+            runPerformanceTests(namespace, apiGatewayUrl)
         }
     ]
 
     parallel testStages
-    
-    // Security tests run after other tests (sequential to avoid resource conflicts)
-    stage('Security Tests') {
-        runSecurityTests(namespace, apiGatewayUrl, 'baseline', 'zap-reports')
-    }
 }
 
-def runIntegrationTests(namespace, apiGatewayUrl, integrationTests) {
+def runIntegrationTests(namespace, apiGatewayUrl) {
     sh """
         chmod +x jenkins/tests/integration-tests.sh
         export KCFG="\${KCFG}"
-        jenkins/tests/integration-tests.sh "${namespace}" "${apiGatewayUrl}" "${integrationTests.join(',')}"
+        jenkins/tests/integration-tests.sh "${namespace}" "${apiGatewayUrl}"
     """
 }
 
-def runE2ETests(namespace, apiGatewayUrl, e2eTests) {
+def runE2ETests(namespace, apiGatewayUrl) {
     sh """
         chmod +x jenkins/tests/e2e-tests.sh
         export KCFG="\${KCFG}"
-        jenkins/tests/e2e-tests.sh "${namespace}" "${apiGatewayUrl}" "${e2eTests.join(',')}"
+        jenkins/tests/e2e-tests.sh "${namespace}" "${apiGatewayUrl}"
     """
 }
 
-def runPerformanceTests(namespace, apiGatewayUrl, services='', users = '50', spawnRate = '10', runTime = '300s') {
+def runPerformanceTests(namespace, apiGatewayUrl, users = '50', spawnRate = '10', runTime = '300s') {
     sh """
         chmod +x jenkins/tests/performance-tests.sh
         export KCFG="\${KCFG}"
-        jenkins/tests/performance-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}" "${services}"
+        jenkins/tests/performance-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}"
     """
     
     archiveArtifacts artifacts: 'performance-report.html,performance-data*.csv', 
-                     fingerprint: true, 
-                     allowEmptyArchive: true
-}
-
-def runStressTests(namespace, apiGatewayUrl, users = '500', spawnRate = '50', runTime = '300s') {
-    sh """
-        chmod +x jenkins/tests/stress-tests.sh
-        export KCFG="\${KCFG}"
-        jenkins/tests/stress-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}"
-    """
-    
-    archiveArtifacts artifacts: 'stress-report.html,stress-data*.csv', 
-                     fingerprint: true, 
-                     allowEmptyArchive: true
-}
-
-def runSpikeTests(namespace, apiGatewayUrl, users = '200', spawnRate = '100', runTime = '120s') {
-    sh """
-        chmod +x jenkins/tests/spike-tests.sh
-        export KCFG="\${KCFG}"
-        jenkins/tests/spike-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}"
-    """
-    
-    archiveArtifacts artifacts: 'spike-report.html,spike-data*.csv', 
-                     fingerprint: true, 
-                     allowEmptyArchive: true
-}
-
-def runEnduranceTests(namespace, apiGatewayUrl, users = '100', spawnRate = '10', runTime = '1800s') {
-    sh """
-        chmod +x jenkins/tests/endurance-tests.sh
-        export KCFG="\${KCFG}"
-        jenkins/tests/endurance-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}"
-    """
-    
-    archiveArtifacts artifacts: 'endurance-report.html,endurance-data*.csv', 
-                     fingerprint: true, 
-                     allowEmptyArchive: true
-}
-
-def runSecurityTests(namespace, apiGatewayUrl, scanType = 'baseline', reportDir = 'zap-reports') {
-    sh """
-        chmod +x jenkins/tests/security-tests.sh
-        export KCFG="\${KCFG}"
-        jenkins/tests/security-tests.sh "${namespace}" "${apiGatewayUrl}" "${scanType}" "${reportDir}"
-    """
-    
-    archiveArtifacts artifacts: 'zap-reports/**/*.html,zap-reports/**/*.json,zap-reports/**/*.xml', 
                      fingerprint: true, 
                      allowEmptyArchive: true
 }
@@ -506,11 +342,6 @@ def generateAndPublishRelease(releaseVersion, githubToken) {
     archiveArtifacts artifacts: 'release_notes.md,CHANGELOG.md', 
                      fingerprint: true, 
                      allowEmptyArchive: true
-
-    def releaseNotesLink = env.BUILD_URL ? "${env.BUILD_URL}artifact/release_notes.md" : 'release_notes.md'
-    def summary = "📦 Release ${releaseVersion} publicado"
-    def details = "Notas: ${releaseNotesLink}\nServicios: ${env.CHANGED_SERVICES ?: 'N/A'}"
-    sendNotification('info', summary, details, env.CHANGED_SERVICES, false)
 }
 
 def publishAllTestResults(changedServices) {
@@ -522,85 +353,6 @@ def publishAllTestResults(changedServices) {
         if (fileExists("${service}/target/surefire-reports")) {
             junit testResults: testResults, allowEmptyResults: true
         }
-    }
-}
-
-def publishJavaCoverageReports(changedServices) {
-    def serviceList = changedServices.split(',')
-    
-    for (serviceName in serviceList) {
-        def service = serviceName.trim()
-        def coverageReport = "${service}/target/site/jacoco/index.html"
-        def coverageXml = "${service}/target/site/jacoco/jacoco.xml"
-        
-        if (fileExists(coverageReport)) {
-            echo "Publishing coverage report for ${service}..."
-            publishHTML([
-                reportName: "${service} Coverage Report",
-                reportDir: "${service}/target/site/jacoco",
-                reportFiles: 'index.html',
-                keepAll: true,
-                alwaysLinkToLastBuild: true
-            ])
-        }
-        
-        if (fileExists(coverageXml)) {
-            archiveArtifacts artifacts: "${service}/target/site/jacoco/**/*", 
-                             fingerprint: true, 
-                             allowEmptyArchive: true
-        }
-    }
-}
-
-def publishPythonCoverageReports() {
-    // Publish integration test coverage
-    if (fileExists('coverage-integration/index.html')) {
-        publishHTML([
-            reportName: 'Integration Tests Coverage',
-            reportDir: 'coverage-integration',
-            reportFiles: 'index.html',
-            keepAll: true,
-            alwaysLinkToLastBuild: true
-        ])
-        archiveArtifacts artifacts: 'coverage-integration/**/*,coverage-integration.xml,coverage-integration.json', 
-                         fingerprint: true, 
-                         allowEmptyArchive: true
-    }
-    
-    // Publish E2E test coverage
-    if (fileExists('coverage-e2e/index.html')) {
-        publishHTML([
-            reportName: 'E2E Tests Coverage',
-            reportDir: 'coverage-e2e',
-            reportFiles: 'index.html',
-            keepAll: true,
-            alwaysLinkToLastBuild: true
-        ])
-        archiveArtifacts artifacts: 'coverage-e2e/**/*,coverage-e2e.xml,coverage-e2e.json', 
-                         fingerprint: true, 
-                         allowEmptyArchive: true
-    }
-}
-
-def generateConsolidatedCoverageReport(changedServices) {
-    echo "Generating consolidated coverage report..."
-    
-    sh """
-        chmod +x jenkins/scripts/generate-coverage-report.sh
-        jenkins/scripts/generate-coverage-report.sh "${changedServices}"
-    """
-    
-    if (fileExists('coverage-consolidated/index.html')) {
-        publishHTML([
-            reportName: 'Consolidated Coverage Report',
-            reportDir: 'coverage-consolidated',
-            reportFiles: 'index.html',
-            keepAll: true,
-            alwaysLinkToLastBuild: true
-        ])
-        archiveArtifacts artifacts: 'coverage-consolidated/**/*', 
-                     fingerprint: true, 
-                     allowEmptyArchive: true
     }
 }
 
@@ -725,163 +477,6 @@ def cleanSpace() {
         rm -rf /var/lib/jenkins/.cache/trivy/*
         rm -rf /var/lib/jenkins/.sonar/cache/*
         find /var/lib/jenkins/.m2/repository -type f -mtime +14 -delete
-    """
-}
-
-/**
- * Deploy Prometheus Agent (lightweight) that sends metrics to Azure Monitor Workspace
- * @param namespace Kubernetes namespace
- * @param environment Environment name (staging/prod)
- * @param azureIngestionEndpoint Azure Monitor Workspace ingestion endpoint
- * @param azureClientId Azure AD client ID for authentication
- * @param azureTenantId Azure AD tenant ID
- * @param azureClientSecret Azure AD client secret
- */
-def deployPrometheusAgent(namespace, environment, azureIngestionEndpoint, azureClientId, azureTenantId, azureClientSecret) {
-    echo "========================================="
-    echo "Deploying Prometheus Agent"
-    echo "========================================="
-    echo "Namespace: ${namespace}"
-    echo "Environment: ${environment}"
-    echo "Azure Ingestion Endpoint: ${azureIngestionEndpoint}"
-    echo "========================================="
-    
-    sh """
-        chmod +x jenkins/scripts/deploy/deploy-prometheus-agent.sh
-        export KCFG="\${KCFG:-}"
-        jenkins/scripts/deploy/deploy-prometheus-agent.sh \
-            "${namespace}" \
-            "${environment}" \
-            "${azureIngestionEndpoint}" \
-            "${azureClientId}" \
-            "${azureTenantId}" \
-            "${azureClientSecret}"
-    """
-    
-    echo ""
-    echo "✓ Prometheus Agent deployed successfully"
-    echo "  Metrics are being sent to Azure Monitor Workspace"
-    
-    // Verify deployment
-    echo ""
-    echo "Verifying deployment..."
-    sh """
-        kubectl --kubeconfig="\${KCFG}" get pods -n "${namespace}" -l app=prometheus-agent || true
-    """
-}
-
-/**
- * Migrate Grafana dashboards to Azure Managed Grafana
- * @param grafanaEndpoint Azure Managed Grafana endpoint URL
- * @param grafanaApiKey API key for Azure Managed Grafana
- * @param prometheusQueryEndpoint Prometheus query endpoint for datasource configuration
- * @param dashboardsDir Directory containing dashboard JSON files
- */
-def migrateGrafanaDashboards(grafanaEndpoint, grafanaApiKey, prometheusQueryEndpoint = '', dashboardsDir = 'k8s/monitoring/grafana-dashboards') {
-    echo "========================================="
-    echo "Migrating Grafana Dashboards"
-    echo "========================================="
-    echo "Grafana Endpoint: ${grafanaEndpoint}"
-    echo "Dashboards Directory: ${dashboardsDir}"
-    echo "========================================="
-    
-    sh """
-        chmod +x jenkins/scripts/migrate-grafana-dashboards.sh
-        export AZURE_PROMETHEUS_QUERY_ENDPOINT="${prometheusQueryEndpoint}"
-        jenkins/scripts/migrate-grafana-dashboards.sh \
-            "${grafanaEndpoint}" \
-            "${grafanaApiKey}" \
-            "${dashboardsDir}"
-    """
-    
-    echo ""
-    echo "✓ Dashboards migrated successfully"
-    echo "  Access them at: ${grafanaEndpoint}"
-}
-
-/**
- * Deploy ELK Stack (Elasticsearch, Logstash, Kibana, Filebeat)
- * @param namespace Kubernetes namespace
- * @param environment Environment name (staging/prod)
- * @param serviceType Service type (NodePort/LoadBalancer)
- */
-def deployELKStack(namespace, environment, serviceType = 'NodePort') {
-    echo "========================================="
-    echo "Deploying ELK Stack"
-    echo "========================================="
-    echo "Namespace: ${namespace}"
-    echo "Environment: ${environment}"
-    echo "Service Type: ${serviceType}"
-    echo "========================================="
-    
-    // Determine NodePorts based on environment
-    def elasticsearchPort = environment == 'prod' ? '30920' : '30920'
-    def kibanaPort = environment == 'prod' ? '30561' : '30561'
-    
-    // Define kubectl command (reusable)
-    def kubectlCmd = env.KCFG ? "kubectl --kubeconfig=\"\${KCFG}\"" : "kubectl"
-    
-    // Step 1: Deploy Elasticsearch (required by Logstash and Kibana)
-    echo ""
-    echo "Step 1: Deploying Elasticsearch..."
-    sh """
-        chmod +x jenkins/scripts/deploy/deploy-elasticsearch.sh
-        export KCFG="\${KCFG:-}"
-        jenkins/scripts/deploy/deploy-elasticsearch.sh "${namespace}" "${environment}" "${serviceType}" "${elasticsearchPort}"
-    """
-    
-    // Wait for Elasticsearch to be ready
-    echo "Waiting for Elasticsearch to be ready..."
-    sh """
-        ${kubectlCmd} wait --for=condition=Available deployment/elasticsearch -n "${namespace}" --timeout=300s || true
-    """
-    sleep(time: 15, unit: 'SECONDS')
-    
-    // Step 2: Deploy Logstash (depends on Elasticsearch)
-    echo ""
-    echo "Step 2: Deploying Logstash..."
-    sh """
-        chmod +x jenkins/scripts/deploy/deploy-logstash.sh
-        export KCFG="\${KCFG:-}"
-        jenkins/scripts/deploy/deploy-logstash.sh "${namespace}" "${environment}"
-    """
-    
-    // Wait for Logstash to be ready
-    echo "Waiting for Logstash to be ready..."
-    sh """
-        ${kubectlCmd} wait --for=condition=Available deployment/logstash -n "${namespace}" --timeout=300s || true
-    """
-    sleep(time: 10, unit: 'SECONDS')
-    
-    // Step 3: Deploy Kibana (depends on Elasticsearch)
-    echo ""
-    echo "Step 3: Deploying Kibana..."
-    sh """
-        chmod +x jenkins/scripts/deploy/deploy-kibana.sh
-        export KCFG="\${KCFG:-}"
-        jenkins/scripts/deploy/deploy-kibana.sh "${namespace}" "${environment}" "${serviceType}" "${kibanaPort}"
-    """
-    
-    // Step 4: Deploy Filebeat (depends on Logstash)
-    echo ""
-    echo "Step 4: Deploying Filebeat..."
-    sh """
-        chmod +x jenkins/scripts/deploy/deploy-filebeat.sh
-        export KCFG="\${KCFG:-}"
-        jenkins/scripts/deploy/deploy-filebeat.sh "${namespace}" "${environment}"
-    """
-    
-    echo ""
-    echo "========================================="
-    echo "ELK Stack deployment completed!"
-    echo "========================================="
-    
-    // Verify deployments
-    echo ""
-    echo "Verifying ELK stack deployments..."
-    sh """
-        ${kubectlCmd} get pods -n "${namespace}" -l 'app in (elasticsearch,logstash,kibana,filebeat)' || true
-        ${kubectlCmd} get daemonset -n "${namespace}" filebeat || true
     """
 }
 
