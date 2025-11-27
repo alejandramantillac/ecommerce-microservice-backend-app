@@ -352,11 +352,24 @@ def deployFilebeat(namespace, environment, elasticsearchEndpoint) {
     echo "Elasticsearch Endpoint: ${elasticsearchEndpoint}"
     echo "========================================="
     
+    // Normalizar el endpoint: agregar http:// y :9200 si no están presentes
+    def normalizedEndpoint = elasticsearchEndpoint
+    if (!normalizedEndpoint.startsWith('http://') && !normalizedEndpoint.startsWith('https://')) {
+        normalizedEndpoint = "http://${normalizedEndpoint}"
+    }
+    if (!normalizedEndpoint.contains(':9200') && !normalizedEndpoint.contains(':443') && !normalizedEndpoint.contains(':80')) {
+        // Remover http:// o https:// temporalmente para agregar el puerto
+        def host = normalizedEndpoint.replaceAll('^https?://', '')
+        normalizedEndpoint = "http://${host}:9200"
+    }
+    
+    echo "Normalized Elasticsearch Endpoint: ${normalizedEndpoint}"
+    
     sh """
         chmod +x jenkins/scripts/deploy/deploy-filebeat.sh
         export KCFG="\${KCFG:-}"
-        export ELASTICSEARCH_ENDPOINT="${elasticsearchEndpoint}"
-        jenkins/scripts/deploy/deploy-filebeat.sh "${namespace}" "${environment}" "${elasticsearchEndpoint}"
+        export ELASTICSEARCH_ENDPOINT="${normalizedEndpoint}"
+        jenkins/scripts/deploy/deploy-filebeat.sh "${namespace}" "${environment}" "${normalizedEndpoint}"
     """
     
     echo ""
@@ -847,6 +860,63 @@ def deployPrometheusAgent(namespace, environment, azureIngestionEndpoint, azureC
     sh """
         kubectl --kubeconfig="\${KCFG}" get pods -n "${namespace}" -l app=prometheus-agent || true
     """
+}
+
+/**
+ * Generate Grafana API Key automatically
+ * @param resourceGroup Azure resource group name
+ * @param grafanaName Grafana instance name
+ * @param keyName API key name (default: jenkins-migration)
+ * @return The generated API key, or null if generation failed
+ */
+def generateGrafanaApiKey(resourceGroup, grafanaName, keyName = 'jenkins-migration') {
+    echo "========================================="
+    echo "Generating Grafana API Key"
+    echo "========================================="
+    echo "Resource Group: ${resourceGroup}"
+    echo "Grafana Name: ${grafanaName}"
+    echo "Key Name: ${keyName}"
+    echo "========================================="
+    
+    sh """
+        chmod +x jenkins/scripts/generate-grafana-api-key.sh || true
+        jenkins/scripts/generate-grafana-api-key.sh "${resourceGroup}" "${grafanaName}" "${keyName}" > .grafana-api-key-output.txt 2>&1 || true
+    """
+    
+    // Leer la API key del output
+    def apiKeyOutput = ''
+    if (fileExists('.grafana-api-key-output.txt')) {
+        apiKeyOutput = readFile('.grafana-api-key-output.txt').trim()
+    }
+    
+    // Extraer la API key (buscar la línea que contiene "API Key:")
+    def apiKey = ''
+    if (apiKeyOutput) {
+        apiKeyOutput.eachLine { line ->
+            if (line.contains('API Key:') && !line.contains('⚠') && !line.contains('Error')) {
+                def match = line =~ /API Key:\s*(.+)/
+                if (match) {
+                    apiKey = match[0][1].trim()
+                }
+            }
+        }
+    }
+    
+    // Si no se encontró, intentar leer del archivo .grafana-api-key si existe
+    if (!apiKey && fileExists('.grafana-api-key')) {
+        apiKey = readFile('.grafana-api-key').trim()
+    }
+    
+    if (apiKey && apiKey.length() > 10) {
+        echo "✓ Grafana API Key generated successfully"
+        return apiKey
+    } else {
+        echo "⚠ Warning: Could not extract API key from output"
+        if (apiKeyOutput) {
+            echo "Output: ${apiKeyOutput}"
+        }
+        return null
+    }
 }
 
 /**

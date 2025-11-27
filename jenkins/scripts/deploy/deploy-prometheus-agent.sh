@@ -98,10 +98,22 @@ echo "✓ Secret created/updated"
 # Step 2: Deploy Prometheus ConfigMap with remote_write
 echo ""
 echo "Step 2: Deploying Prometheus ConfigMap with remote_write..."
-if substitute_vars k8s/monitoring/prometheus-config-remote-write.yaml | kubectl --kubeconfig="$KCFG" apply -f -; then
+# Verificar que la sustitución funciona correctamente
+TEMP_CONFIG=$(mktemp)
+substitute_vars k8s/monitoring/prometheus-config-remote-write.yaml > "$TEMP_CONFIG"
+# Verificar que la URL fue sustituida (no debe contener ${AZURE_PROMETHEUS_INGESTION_ENDPOINT})
+if grep -q '\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}' "$TEMP_CONFIG"; then
+    echo "Error: Variable substitution failed. AZURE_PROMETHEUS_INGESTION_ENDPOINT not replaced in ConfigMap"
+    echo "Endpoint value: ${AZURE_INGESTION_ENDPOINT}"
+    rm -f "$TEMP_CONFIG"
+    exit 1
+fi
+if kubectl --kubeconfig="$KCFG" apply -f "$TEMP_CONFIG"; then
     echo "✓ ConfigMap deployed"
+    rm -f "$TEMP_CONFIG"
 else
     echo "✗ Failed to deploy ConfigMap"
+    rm -f "$TEMP_CONFIG"
     exit 1
 fi
 
