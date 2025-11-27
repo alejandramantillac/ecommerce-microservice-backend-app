@@ -74,23 +74,3 @@ module "aks" {
 
   depends_on = [module.networking]
 }
-
-module "monitoring" {
-  source = "../../modules/monitoring"
-
-  name_prefix         = local.name_prefix
-  resource_group_name = azurerm_resource_group.this.name
-  location            = azurerm_resource_group.this.location
-  aks_cluster_id      = module.aks.cluster_id
-
-  grafana_sku            = var.grafana_sku
-  grafana_public_access  = var.grafana_public_access
-  grafana_zone_redundancy = var.grafana_zone_redundancy
-
-  alert_email_receivers = var.alert_email_receivers
-  alert_webhook_urls    = var.alert_webhook_urls
-
-  tags = local.base_tags
-}
-
-
