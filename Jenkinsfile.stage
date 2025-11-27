@@ -299,7 +299,7 @@ pipeline {
                                 def foundGrafana = sh(
                                     script: """
                                         GRAFANA_ENDPOINT="${grafanaEndpoint}"
-                                        GRAFANA_DOMAIN=\$(echo "\$GRAFANA_ENDPOINT" | sed 's|https\?://||' | sed 's|/.*||')
+                                        GRAFANA_DOMAIN=\$(echo "\$GRAFANA_ENDPOINT" | sed 's|https://||' | sed 's|http://||' | sed 's|/.*||')
                                         az grafana list --query "[?contains(properties.endpoint, '\${GRAFANA_DOMAIN}')].{name:name, resourceGroup:resourceGroup}" -o json 2>/dev/null | head -5
                                     """,
                                     returnStdout: true
