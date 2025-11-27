@@ -411,6 +411,7 @@ def getBusinessServices() {
 }
 
 def getMonitoringServices() {
+    def services = getServicesList()
     return services.findAll { it.name == 'zipkin' }
 }
 
