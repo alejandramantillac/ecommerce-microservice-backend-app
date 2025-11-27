@@ -35,7 +35,7 @@ def printDeploymentInfo(environment, imageTag, namespace = null) {
 
 def detectChangedServices(services) {
     // Build service list as comma-separated paths
-    def servicePaths = services.collect { it.path ?: it.name }.join(',')
+    def servicePaths = services.findAll { it.path }.collect { it.path }.join(',')
     
     // Use the shell script to detect changes
     def changedServicesList = sh(
@@ -95,61 +95,53 @@ def pushDockerImages(registry, imageTag, latestTag, changedServices, dockerUser,
 
 def deployToKubernetes(environment, namespace, registry, imageTag, changedServices) {
     def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
-    def allServices = commonVars.getServicesList()
-    
+    def deployedServices = []
+
     echo "========================================="
     echo "Deploying services to ${environment}"
     echo "Namespace: ${namespace}"
     echo "========================================="
-    
-    // PASO 0: Ensure namespace exists before applying resources
+
     ensureNamespace(namespace)
 
-    // PASO 1: Apply Secrets first (before ConfigMap)
-    echo "Step 1: Applying Secrets for ${environment}..."
-    applySecrets(environment, namespace)
-
-    // PASO 2: Apply ConfigMap (services depend on it)
-    echo "Step 2: Applying ConfigMap for ${environment}..."
+    echo "Step 1: Applying ConfigMap for ${environment}..."
     applyConfigMap(environment, namespace)
-    
-    // PASO 3: Deploy core services (in order)
-    echo "Step 3: Deploying core services..."
-    def coreServices = commonVars.getCoreServices()
-    for (service in coreServices) {
-        if (changedServices.contains(service.name)) {
-            deployService(service, environment, namespace, registry, imageTag)
-        }
-    }
 
-    // PASO 4: Deploy monitoring services
-    echo "Step 4: Deploying monitoring services..."
-    def monitoringServices = commonVars.getMonitoringServices()
-    for (service in monitoringServices) {
-        if (changedServices.contains(service.name)) {
-            deployService(service, environment, namespace, registry, imageTag)
-        }
-    }
-    
-    // PASO 5: Deploy business services in parallel
-    echo "Step 5: Deploying business services..."
-    def businessServices = commonVars.getBusinessServices()
-    def businessDeployStages = [:]
-    businessServices.each { service ->
-        if (changedServices.contains(service.name)) {
-            businessDeployStages["Deploy ${service.name}"] = {
-                deployService(service, environment, namespace, registry, imageTag)
+    def deployListInOrder = [
+        commonVars.getCoreServices(),
+        commonVars.getMonitoringServices()
+    ]
+
+    deployListInOrder.each { group ->
+        group.each { service ->
+            if (changedServices.contains(service.name)) {
+                deployServiceWithTracking(service, environment, namespace, registry, imageTag, deployedServices)
             }
         }
     }
-    
-    if (!businessDeployStages.isEmpty()) {
-        parallel businessDeployStages
+
+    echo "Step 4: Deploying business services..."
+    def businessServices = commonVars.getBusinessServices()
+    def businessStages = [:]
+    businessServices.each { service ->
+        if (changedServices.contains(service.name)) {
+            def svc = service
+            businessStages["Deploy ${svc.name}"] = {
+                deployServiceWithTracking(svc, environment, namespace, registry, imageTag, deployedServices)
+            }
+        }
     }
-    
-    // PASO 6: Apply Ingress (after services are deployed)
-    echo "Step 6: Applying Ingress for ${environment}..."
-    applyIngress(environment, namespace)
+    if (!businessStages.isEmpty()) {
+        parallel businessStages
+    }
+
+    if (!deployedServices.isEmpty()) {
+        env.SUCCESSFUL_DEPLOYS = deployedServices.join(',')
+        echo "Services deployed successfully: ${env.SUCCESSFUL_DEPLOYS}"
+    } else {
+        env.SUCCESSFUL_DEPLOYS = ''
+        echo "No services were deployed in this stage."
+    }
 }
 
 def ensureNamespace(namespace) {
@@ -176,7 +168,7 @@ def applySecrets(environment, namespace) {
 }
 
 def applyConfigMap(environment, namespace) {
-    def configMapFile = "k8s/02-configmap-${environment}.yaml"
+    def configMapFile = "k8s/base/02-configmap-${environment}.yaml"
     
     echo "Applying ConfigMap from: ${configMapFile}"
     
@@ -480,6 +472,11 @@ def deployService(serviceConfig, environment, namespace, registry, imageTag) {
     """
 }
 
+def deployServiceWithTracking(serviceConfig, environment, namespace, registry, imageTag, deployedServicesRef) {
+    deployService(serviceConfig, environment, namespace, registry, imageTag)
+    deployedServicesRef << serviceConfig.name
+}
+
 def getLoadBalancerIP(serviceName, namespace) {
     def ip = sh(
         script: """
@@ -492,49 +489,129 @@ def getLoadBalancerIP(serviceName, namespace) {
     return ip
 }
 
-def runAllTests(namespace) {
+def runAllTests(namespace, changedServices) {
+    def commonVars = load 'jenkins/shared-lib/vars/commonVars.groovy'
+    
     def stagingGatewayIP = getLoadBalancerIP('api-gateway', 'staging')
     def apiGatewayUrl = "http://${stagingGatewayIP}:8080"
 
+    def integrationTests = []
+    def e2eTests = []
+    def performanceServices = ''
+
+    def serviceList = changedServices.split(',')
+    for (serviceName in serviceList) {
+        def service = serviceName.trim()
+        def serviceConfig = commonVars.getServiceConfig(service)
+        if (serviceConfig?.testsIntegration) {
+            integrationTests.addAll(serviceConfig.testsIntegration)
+        }
+        if (serviceConfig?.testsE2E) {
+            e2eTests.addAll(serviceConfig.testsE2E)
+        }
+        performanceServices += service + ','
+    }
+    
+    // Remove duplicates from e2eTests
+    e2eTests = e2eTests.unique()
+    
+    // If no E2E tests found, use default
+    if (e2eTests.isEmpty()) {
+        e2eTests = ["e2e/test_user_flow.py"]
+    }
+
     def testStages = [
         'Integration Tests': {
-            runIntegrationTests(namespace, apiGatewayUrl)
+            runIntegrationTests(namespace, apiGatewayUrl, integrationTests)
         },
         'E2E Tests': {
-            runE2ETests(namespace, apiGatewayUrl)
+            runE2ETests(namespace, apiGatewayUrl, e2eTests)
         },
         'Performance Tests': {
-            runPerformanceTests(namespace, apiGatewayUrl)
+            runPerformanceTests(namespace, apiGatewayUrl, performanceServices)
         }
     ]
 
     parallel testStages
+    
+    // Security tests run after other tests (sequential to avoid resource conflicts)
+    stage('Security Tests') {
+        runSecurityTests(namespace, apiGatewayUrl, 'baseline', 'zap-reports')
+    }
 }
 
-def runIntegrationTests(namespace, apiGatewayUrl) {
+def runIntegrationTests(namespace, apiGatewayUrl, integrationTests) {
     sh """
         chmod +x jenkins/tests/integration-tests.sh
         export KCFG="\${KCFG}"
-        jenkins/tests/integration-tests.sh "${namespace}" "${apiGatewayUrl}"
+        jenkins/tests/integration-tests.sh "${namespace}" "${apiGatewayUrl}" "${integrationTests.join(',')}"
     """
 }
 
-def runE2ETests(namespace, apiGatewayUrl) {
+def runE2ETests(namespace, apiGatewayUrl, e2eTests) {
     sh """
         chmod +x jenkins/tests/e2e-tests.sh
         export KCFG="\${KCFG}"
-        jenkins/tests/e2e-tests.sh "${namespace}" "${apiGatewayUrl}"
+        jenkins/tests/e2e-tests.sh "${namespace}" "${apiGatewayUrl}" "${e2eTests.join(',')}"
     """
 }
 
-def runPerformanceTests(namespace, apiGatewayUrl, users = '50', spawnRate = '10', runTime = '300s') {
+def runPerformanceTests(namespace, apiGatewayUrl, services='', users = '50', spawnRate = '10', runTime = '300s') {
     sh """
         chmod +x jenkins/tests/performance-tests.sh
         export KCFG="\${KCFG}"
-        jenkins/tests/performance-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}"
+        jenkins/tests/performance-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}" "${services}"
     """
     
     archiveArtifacts artifacts: 'performance-report.html,performance-data*.csv', 
+                     fingerprint: true, 
+                     allowEmptyArchive: true
+}
+
+def runStressTests(namespace, apiGatewayUrl, users = '500', spawnRate = '50', runTime = '300s') {
+    sh """
+        chmod +x jenkins/tests/stress-tests.sh
+        export KCFG="\${KCFG}"
+        jenkins/tests/stress-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}"
+    """
+    
+    archiveArtifacts artifacts: 'stress-report.html,stress-data*.csv', 
+                     fingerprint: true, 
+                     allowEmptyArchive: true
+}
+
+def runSpikeTests(namespace, apiGatewayUrl, users = '200', spawnRate = '100', runTime = '120s') {
+    sh """
+        chmod +x jenkins/tests/spike-tests.sh
+        export KCFG="\${KCFG}"
+        jenkins/tests/spike-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}"
+    """
+    
+    archiveArtifacts artifacts: 'spike-report.html,spike-data*.csv', 
+                     fingerprint: true, 
+                     allowEmptyArchive: true
+}
+
+def runEnduranceTests(namespace, apiGatewayUrl, users = '100', spawnRate = '10', runTime = '1800s') {
+    sh """
+        chmod +x jenkins/tests/endurance-tests.sh
+        export KCFG="\${KCFG}"
+        jenkins/tests/endurance-tests.sh "${namespace}" "${apiGatewayUrl}" "${users}" "${spawnRate}" "${runTime}"
+    """
+    
+    archiveArtifacts artifacts: 'endurance-report.html,endurance-data*.csv', 
+                     fingerprint: true, 
+                     allowEmptyArchive: true
+}
+
+def runSecurityTests(namespace, apiGatewayUrl, scanType = 'baseline', reportDir = 'zap-reports') {
+    sh """
+        chmod +x jenkins/tests/security-tests.sh
+        export KCFG="\${KCFG}"
+        jenkins/tests/security-tests.sh "${namespace}" "${apiGatewayUrl}" "${scanType}" "${reportDir}"
+    """
+    
+    archiveArtifacts artifacts: 'zap-reports/**/*.html,zap-reports/**/*.json,zap-reports/**/*.xml', 
                      fingerprint: true, 
                      allowEmptyArchive: true
 }
@@ -551,6 +628,11 @@ def generateAndPublishRelease(releaseVersion, githubToken) {
     archiveArtifacts artifacts: 'release_notes.md,CHANGELOG.md', 
                      fingerprint: true, 
                      allowEmptyArchive: true
+
+    def releaseNotesLink = env.BUILD_URL ? "${env.BUILD_URL}artifact/release_notes.md" : 'release_notes.md'
+    def summary = "📦 Release ${releaseVersion} publicado"
+    def details = "Notas: ${releaseNotesLink}\nServicios: ${env.CHANGED_SERVICES ?: 'N/A'}"
+    sendNotification('info', summary, details, env.CHANGED_SERVICES, false)
 }
 
 def publishAllTestResults(changedServices) {
@@ -562,6 +644,85 @@ def publishAllTestResults(changedServices) {
         if (fileExists("${service}/target/surefire-reports")) {
             junit testResults: testResults, allowEmptyResults: true
         }
+    }
+}
+
+def publishJavaCoverageReports(changedServices) {
+    def serviceList = changedServices.split(',')
+    
+    for (serviceName in serviceList) {
+        def service = serviceName.trim()
+        def coverageReport = "${service}/target/site/jacoco/index.html"
+        def coverageXml = "${service}/target/site/jacoco/jacoco.xml"
+        
+        if (fileExists(coverageReport)) {
+            echo "Publishing coverage report for ${service}..."
+            publishHTML([
+                reportName: "${service} Coverage Report",
+                reportDir: "${service}/target/site/jacoco",
+                reportFiles: 'index.html',
+                keepAll: true,
+                alwaysLinkToLastBuild: true
+            ])
+        }
+        
+        if (fileExists(coverageXml)) {
+            archiveArtifacts artifacts: "${service}/target/site/jacoco/**/*", 
+                             fingerprint: true, 
+                             allowEmptyArchive: true
+        }
+    }
+}
+
+def publishPythonCoverageReports() {
+    // Publish integration test coverage
+    if (fileExists('coverage-integration/index.html')) {
+        publishHTML([
+            reportName: 'Integration Tests Coverage',
+            reportDir: 'coverage-integration',
+            reportFiles: 'index.html',
+            keepAll: true,
+            alwaysLinkToLastBuild: true
+        ])
+        archiveArtifacts artifacts: 'coverage-integration/**/*,coverage-integration.xml,coverage-integration.json', 
+                         fingerprint: true, 
+                         allowEmptyArchive: true
+    }
+    
+    // Publish E2E test coverage
+    if (fileExists('coverage-e2e/index.html')) {
+        publishHTML([
+            reportName: 'E2E Tests Coverage',
+            reportDir: 'coverage-e2e',
+            reportFiles: 'index.html',
+            keepAll: true,
+            alwaysLinkToLastBuild: true
+        ])
+        archiveArtifacts artifacts: 'coverage-e2e/**/*,coverage-e2e.xml,coverage-e2e.json', 
+                         fingerprint: true, 
+                         allowEmptyArchive: true
+    }
+}
+
+def generateConsolidatedCoverageReport(changedServices) {
+    echo "Generating consolidated coverage report..."
+    
+    sh """
+        chmod +x jenkins/scripts/generate-coverage-report.sh
+        jenkins/scripts/generate-coverage-report.sh "${changedServices}"
+    """
+    
+    if (fileExists('coverage-consolidated/index.html')) {
+        publishHTML([
+            reportName: 'Consolidated Coverage Report',
+            reportDir: 'coverage-consolidated',
+            reportFiles: 'index.html',
+            keepAll: true,
+            alwaysLinkToLastBuild: true
+        ])
+        archiveArtifacts artifacts: 'coverage-consolidated/**/*', 
+                     fingerprint: true, 
+                     allowEmptyArchive: true
     }
 }
 
