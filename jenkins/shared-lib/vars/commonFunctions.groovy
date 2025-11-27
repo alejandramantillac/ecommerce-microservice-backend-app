@@ -213,7 +213,8 @@ def getMonitoringOutputs(envNamespace) {
     return [
         prometheusIngestionEndpoint: getTerraformOutput(envNamespace, 'prometheus_ingestion_endpoint'),
         prometheusQueryEndpoint: getTerraformOutput(envNamespace, 'prometheus_query_endpoint'),
-        grafanaEndpoint: getTerraformOutput(envNamespace, 'grafana_endpoint')
+        grafanaEndpoint: getTerraformOutput(envNamespace, 'grafana_endpoint'),
+        grafanaName: getTerraformOutput(envNamespace, 'grafana_name')
     ]
 }
 
@@ -228,6 +229,7 @@ def saveMonitoringOutputs(envNamespace, outputs) {
         echo "PROMETHEUS_INGESTION_ENDPOINT=${outputs.prometheusIngestionEndpoint}" > "${outputFile}"
         echo "PROMETHEUS_QUERY_ENDPOINT=${outputs.prometheusQueryEndpoint}" >> "${outputFile}"
         echo "GRAFANA_ENDPOINT=${outputs.grafanaEndpoint}" >> "${outputFile}"
+        echo "GRAFANA_NAME=${outputs.grafanaName}" >> "${outputFile}"
     """
     return outputFile
 }
@@ -259,10 +261,16 @@ def loadMonitoringOutputs(envNamespace) {
         returnStdout: true
     ).trim()
     
+    def grafanaName = sh(
+        script: "grep GRAFANA_NAME '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
+    
     return [
         prometheusIngestionEndpoint: ingestionEndpoint,
         prometheusQueryEndpoint: queryEndpoint,
-        grafanaEndpoint: grafanaEndpoint
+        grafanaEndpoint: grafanaEndpoint,
+        grafanaName: grafanaName
     ]
 }
 
