@@ -59,14 +59,15 @@ echo ""
 export SERVICE_NAME NAMESPACE REGISTRY IMAGE_TAG SERVICE_PORT SERVICE_TYPE NODE_PORT
 export MEMORY_REQUEST MEMORY_LIMIT CPU_REQUEST CPU_LIMIT REPLICAS HEALTH_PATH
 
-if [ -f "k8s/services/${SERVICE_NAME}.yaml" ]; then
-    echo "Using specific configuration: k8s/services/${SERVICE_NAME}.yaml"
+# Check for specific configuration files (in order of preference)
+if [ -f "k8s/${SERVICE_NAME}.yaml" ]; then
+    echo "Using specific configuration: k8s/${SERVICE_NAME}.yaml"
 
     # Apply with variable substitution
     sed -e "s|\${SERVICE_NAME}|${SERVICE_NAME}|g" \
         -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
         -e "s|\${NODE_PORT}|${NODE_PORT}|g" \
-        "k8s/services/${SERVICE_NAME}.yaml" | kubectl --kubeconfig="$KCFG" apply -f -
+        "k8s/${SERVICE_NAME}.yaml" | kubectl --kubeconfig="$KCFG" apply -f -
 
 else
     echo "Using generic template: k8s/base/service-template.yaml"
