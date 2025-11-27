@@ -164,7 +164,6 @@ def getServicesList() {
             name: 'zipkin',
             port: 9411,
             type: 'monitoring',
-            path: 'zipkin',
             external: true,
             exposure: [
                 dev: [
@@ -412,7 +411,8 @@ def getBusinessServices() {
 }
 
 def getMonitoringServices() {
-    return getServicesByType('monitoring')
+    def services = getServicesList()
+    return services.findAll { it.name == 'zipkin' }
 }
 
 def getServiceExposure(serviceName, environment) {

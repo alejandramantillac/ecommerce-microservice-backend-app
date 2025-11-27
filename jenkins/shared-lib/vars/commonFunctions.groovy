@@ -228,6 +228,215 @@ def getAndConfigureKubeConfigFromTerraform(envNamespace, armClientId, armClientS
     return "${env.WORKSPACE}/.kube/security-${envNamespace}"
 }
 
+/**
+ * Get Terraform output value
+ * @param envNamespace Environment namespace (staging/prod)
+ * @param outputName Name of the Terraform output
+ * @return Output value as string
+ */
+def getTerraformOutput(envNamespace, outputName) {
+    return sh(
+        script: """
+            cd infra/terraform/environments/${envNamespace}
+            terraform output -raw ${outputName} 2>/dev/null || echo ""
+        """,
+        returnStdout: true
+    ).trim()
+}
+
+/**
+ * Get all monitoring-related outputs from Terraform
+ * @param envNamespace Environment namespace (staging/prod)
+ * @return Map with monitoring outputs
+ */
+def getMonitoringOutputs(envNamespace) {
+    return [
+        prometheusIngestionEndpoint: getTerraformOutput(envNamespace, 'prometheus_ingestion_endpoint'),
+        prometheusQueryEndpoint: getTerraformOutput(envNamespace, 'prometheus_query_endpoint'),
+        grafanaEndpoint: getTerraformOutput(envNamespace, 'grafana_endpoint')
+    ]
+}
+
+/**
+ * Save monitoring outputs to file for later use
+ * @param envNamespace Environment namespace
+ * @param outputs Map with monitoring outputs
+ */
+def saveMonitoringOutputs(envNamespace, outputs) {
+    def outputFile = "${env.WORKSPACE}/.monitoring-${envNamespace}.env"
+    sh """
+        echo "PROMETHEUS_INGESTION_ENDPOINT=${outputs.prometheusIngestionEndpoint}" > "${outputFile}"
+        echo "PROMETHEUS_QUERY_ENDPOINT=${outputs.prometheusQueryEndpoint}" >> "${outputFile}"
+        echo "GRAFANA_ENDPOINT=${outputs.grafanaEndpoint}" >> "${outputFile}"
+    """
+    return outputFile
+}
+
+/**
+ * Load monitoring outputs from file
+ * @param envNamespace Environment namespace
+ * @return Map with monitoring outputs
+ */
+def loadMonitoringOutputs(envNamespace) {
+    def outputFile = "${env.WORKSPACE}/.monitoring-${envNamespace}.env"
+    if (!fileExists(outputFile)) {
+        echo "Warning: Monitoring outputs file not found: ${outputFile}"
+        return [:]
+    }
+    
+    def ingestionEndpoint = sh(
+        script: "grep PROMETHEUS_INGESTION_ENDPOINT '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
+    
+    def queryEndpoint = sh(
+        script: "grep PROMETHEUS_QUERY_ENDPOINT '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
+    
+    def grafanaEndpoint = sh(
+        script: "grep GRAFANA_ENDPOINT '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
+    
+    return [
+        prometheusIngestionEndpoint: ingestionEndpoint,
+        prometheusQueryEndpoint: queryEndpoint,
+        grafanaEndpoint: grafanaEndpoint
+    ]
+}
+
+/**
+ * Retrieves all relevant logging outputs from Terraform.
+ * @param envNamespace The environment namespace.
+ * @return A map containing elasticsearchEndpoint, elasticsearchInternalEndpoint, kibanaEndpoint, and logstashEndpoint.
+ */
+def getLoggingOutputs(envNamespace) {
+    return [
+        elasticsearchEndpoint: getTerraformOutput(envNamespace, 'elasticsearch_endpoint'),
+        elasticsearchInternalEndpoint: getTerraformOutput(envNamespace, 'elasticsearch_internal_endpoint'),
+        kibanaEndpoint: getTerraformOutput(envNamespace, 'kibana_endpoint'),
+        logstashEndpoint: getTerraformOutput(envNamespace, 'logstash_endpoint')
+    ]
+}
+
+/**
+ * Saves logging outputs to a file for later use.
+ * @param envNamespace The environment namespace.
+ * @param loggingOutputs A map containing the logging outputs.
+ * @return The path to the file where outputs were saved.
+ */
+def saveLoggingOutputs(envNamespace, loggingOutputs) {
+    def outputFile = "${env.WORKSPACE}/.logging-${envNamespace}.env"
+    sh """
+        echo "ELASTICSEARCH_ENDPOINT=${loggingOutputs.elasticsearchEndpoint}" > "${outputFile}"
+        echo "ELASTICSEARCH_INTERNAL_ENDPOINT=${loggingOutputs.elasticsearchInternalEndpoint}" >> "${outputFile}"
+        echo "KIBANA_ENDPOINT=${loggingOutputs.kibanaEndpoint}" >> "${outputFile}"
+        echo "LOGSTASH_ENDPOINT=${loggingOutputs.logstashEndpoint}" >> "${outputFile}"
+    """
+    return outputFile
+}
+
+/**
+ * Loads logging outputs from a file.
+ * @param envNamespace The environment namespace.
+ * @return A map containing elasticsearchEndpoint, elasticsearchInternalEndpoint, kibanaEndpoint, and logstashEndpoint.
+ */
+def loadLoggingOutputs(envNamespace) {
+    def outputFile = "${env.WORKSPACE}/.logging-${envNamespace}.env"
+    if (!fileExists(outputFile)) {
+        echo "Warning: Logging outputs file not found: ${outputFile}"
+        return [:]
+    }
+    
+    def elasticsearchEndpoint = sh(
+        script: "grep ELASTICSEARCH_ENDPOINT '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
+    
+    def elasticsearchInternalEndpoint = sh(
+        script: "grep ELASTICSEARCH_INTERNAL_ENDPOINT '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
+    
+    def kibanaEndpoint = sh(
+        script: "grep KIBANA_ENDPOINT '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
+    
+    def logstashEndpoint = sh(
+        script: "grep LOGSTASH_ENDPOINT '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
+    
+    return [
+        elasticsearchEndpoint: elasticsearchEndpoint,
+        elasticsearchInternalEndpoint: elasticsearchInternalEndpoint,
+        kibanaEndpoint: kibanaEndpoint,
+        logstashEndpoint: logstashEndpoint
+    ]
+}
+
+/**
+ * Deploy Filebeat to send logs to Elasticsearch in Azure Container Apps
+ * @param namespace Kubernetes namespace
+ * @param environment Environment name (staging/prod)
+ * @param elasticsearchEndpoint Elasticsearch endpoint from Azure Container Apps
+ */
+def deployFilebeat(namespace, environment, elasticsearchEndpoint) {
+    echo "========================================="
+    echo "Deploying Filebeat"
+    echo "========================================="
+    echo "Namespace: ${namespace}"
+    echo "Environment: ${environment}"
+    echo "Elasticsearch Endpoint: ${elasticsearchEndpoint}"
+    echo "========================================="
+    
+    sh """
+        chmod +x jenkins/scripts/deploy/deploy-filebeat.sh
+        export KCFG="\${KCFG:-}"
+        export ELASTICSEARCH_ENDPOINT="${elasticsearchEndpoint}"
+        jenkins/scripts/deploy/deploy-filebeat.sh "${namespace}" "${environment}" "${elasticsearchEndpoint}"
+    """
+    
+    echo ""
+    echo "✓ Filebeat deployed successfully"
+    echo "  Logs are being sent to Elasticsearch at: ${elasticsearchEndpoint}"
+    
+    // Verify deployment
+    echo ""
+    echo "Verifying deployment..."
+    sh """
+        kubectl --kubeconfig="\${KCFG}" get daemonset -n "${namespace}" filebeat || true
+        kubectl --kubeconfig="\${KCFG}" get pods -n "${namespace}" -l app=filebeat || true
+    """
+}
+
+def rollbackServices(namespace, services, kubeconfigPath) {
+    if (!services?.trim()) {
+        echo "No services provided for rollback."
+        return
+    }
+    if (!kubeconfigPath?.trim()) {
+        echo "No kubeconfig path provided; rollback skipped."
+        return
+    }
+
+    def serviceList = services.split(',').collect { it.trim() }.findAll { it }
+    if (serviceList.isEmpty()) {
+        echo "Service list empty after parsing; rollback skipped."
+        return
+    }
+
+    sh """
+        chmod +x jenkins/scripts/rollback-services.sh
+        jenkins/scripts/rollback-services.sh \
+            --kubeconfig "${kubeconfigPath}" \
+            --namespace "${namespace}" \
+            --services "${serviceList.join(',')}"
+    """
+}
+
 def collectPodImages(namespace, kubeconfigPath, reportDir) {
     def imageListFile = "${reportDir}/images.txt"
     withEnv([
@@ -478,6 +687,77 @@ def cleanSpace() {
         rm -rf /var/lib/jenkins/.sonar/cache/*
         find /var/lib/jenkins/.m2/repository -type f -mtime +14 -delete
     """
+}
+
+/**
+ * Deploy Prometheus Agent (lightweight) that sends metrics to Azure Monitor Workspace
+ * @param namespace Kubernetes namespace
+ * @param environment Environment name (staging/prod)
+ * @param azureIngestionEndpoint Azure Monitor Workspace ingestion endpoint
+ * @param azureClientId Azure AD client ID for authentication
+ * @param azureTenantId Azure AD tenant ID
+ * @param azureClientSecret Azure AD client secret
+ */
+def deployPrometheusAgent(namespace, environment, azureIngestionEndpoint, azureClientId, azureTenantId, azureClientSecret) {
+    echo "========================================="
+    echo "Deploying Prometheus Agent"
+    echo "========================================="
+    echo "Namespace: ${namespace}"
+    echo "Environment: ${environment}"
+    echo "Azure Ingestion Endpoint: ${azureIngestionEndpoint}"
+    echo "========================================="
+    
+    sh """
+        chmod +x jenkins/scripts/deploy/deploy-prometheus-agent.sh
+        export KCFG="\${KCFG:-}"
+        jenkins/scripts/deploy/deploy-prometheus-agent.sh \
+            "${namespace}" \
+            "${environment}" \
+            "${azureIngestionEndpoint}" \
+            "${azureClientId}" \
+            "${azureTenantId}" \
+            "${azureClientSecret}"
+    """
+    
+    echo ""
+    echo "✓ Prometheus Agent deployed successfully"
+    echo "  Metrics are being sent to Azure Monitor Workspace"
+    
+    // Verify deployment
+    echo ""
+    echo "Verifying deployment..."
+    sh """
+        kubectl --kubeconfig="\${KCFG}" get pods -n "${namespace}" -l app=prometheus-agent || true
+    """
+}
+
+/**
+ * Migrate Grafana dashboards to Azure Managed Grafana
+ * @param grafanaEndpoint Azure Managed Grafana endpoint URL
+ * @param grafanaApiKey API key for Azure Managed Grafana
+ * @param prometheusQueryEndpoint Prometheus query endpoint for datasource configuration
+ * @param dashboardsDir Directory containing dashboard JSON files
+ */
+def migrateGrafanaDashboards(grafanaEndpoint, grafanaApiKey, prometheusQueryEndpoint = '', dashboardsDir = 'k8s/monitoring/grafana-dashboards') {
+    echo "========================================="
+    echo "Migrating Grafana Dashboards"
+    echo "========================================="
+    echo "Grafana Endpoint: ${grafanaEndpoint}"
+    echo "Dashboards Directory: ${dashboardsDir}"
+    echo "========================================="
+    
+    sh """
+        chmod +x jenkins/scripts/migrate-grafana-dashboards.sh
+        export AZURE_PROMETHEUS_QUERY_ENDPOINT="${prometheusQueryEndpoint}"
+        jenkins/scripts/migrate-grafana-dashboards.sh \
+            "${grafanaEndpoint}" \
+            "${grafanaApiKey}" \
+            "${dashboardsDir}"
+    """
+    
+    echo ""
+    echo "✓ Dashboards migrated successfully"
+    echo "  Access them at: ${grafanaEndpoint}"
 }
 
 def sendNotification(severity, summary, details, services, includeMentions = false) {

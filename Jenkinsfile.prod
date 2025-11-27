@@ -142,6 +142,40 @@ pipeline {
                 }
             }
         }
+        
+        stage('Deploy Monitoring Stack (Production)') {
+            steps {
+                unstash 'workspace'
+                unstash 'prod-kubeconfig'
+                withEnv(["KCFG=${env.PROD_KUBE_CONFIG_PATH}"]) {
+                    script {
+                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                        echo "Deploying monitoring stack (Prometheus, Grafana, Alertmanager) to production..."
+                        commonFunctions.deployMonitoringStack(
+                            env.K8S_NAMESPACE_PROD,
+                            env.TARGET_ENVIRONMENT,
+                            'LoadBalancer'  // Use LoadBalancer for production
+                        )
+                    }
+                }
+            }
+        }
+
+        stage('Deploy ELK Stack (Production)') {
+            steps {
+                withEnv(["KCFG=${env.PROD_KUBE_CONFIG_PATH}"]) {
+                    script {
+                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                        echo "Deploying ELK stack (Elasticsearch, Logstash, Kibana, Filebeat) to production..."
+                        commonFunctions.deployELKStack(
+                            env.K8S_NAMESPACE_PROD,
+                            env.TARGET_ENVIRONMENT,
+                            'LoadBalancer'  // Use LoadBalancer for production
+                        )
+                    }
+                }
+            }
+        }
 
         stage('Deploy to Production') {
             steps {
