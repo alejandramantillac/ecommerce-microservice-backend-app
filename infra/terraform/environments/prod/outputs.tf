@@ -66,3 +66,16 @@ output "logstash_endpoint" {
   value = module.logging.logstash_endpoint
 }
 
+output "log_analytics_workspace_id" {
+  value = module.logging.log_analytics_workspace_id
+}
+
+output "log_analytics_workspace_customer_id" {
+  value = module.logging.log_analytics_workspace_customer_id
+}
+
+output "log_analytics_workspace_primary_shared_key" {
+  value       = module.logging.log_analytics_workspace_primary_shared_key
+  sensitive   = true
+}
+

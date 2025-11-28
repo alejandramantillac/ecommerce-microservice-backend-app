@@ -280,10 +280,25 @@ def loadMonitoringOutputs(envNamespace) {
  * @return A map containing elasticsearchEndpoint, elasticsearchInternalEndpoint, kibanaEndpoint, and logstashEndpoint.
  */
 def getLoggingOutputs(envNamespace) {
+    def workspaceId = getTerraformOutput(envNamespace, 'log_analytics_workspace_id')
+    def customerId = getTerraformOutput(envNamespace, 'log_analytics_workspace_customer_id')
+    def sharedKey = getTerraformOutput(envNamespace, 'log_analytics_workspace_primary_shared_key')
+    
+    // Validar que los outputs de Log Analytics no estén vacíos
+    if (!workspaceId || workspaceId.isEmpty()) {
+        echo "⚠ Warning: log_analytics_workspace_id is empty. Make sure Terraform has been applied."
+    }
+    if (!customerId || customerId.isEmpty()) {
+        echo "⚠ Warning: log_analytics_workspace_customer_id is empty. Make sure Terraform has been applied."
+    }
+    if (!sharedKey || sharedKey.isEmpty()) {
+        echo "⚠ Warning: log_analytics_workspace_primary_shared_key is empty. Make sure Terraform has been applied."
+    }
+    
     return [
-        logAnalyticsWorkspaceId: getTerraformOutput(envNamespace, 'log_analytics_workspace_id'),
-        logAnalyticsCustomerId: getTerraformOutput(envNamespace, 'log_analytics_workspace_customer_id'),
-        logAnalyticsSharedKey: getTerraformOutput(envNamespace, 'log_analytics_workspace_primary_shared_key'),
+        logAnalyticsWorkspaceId: workspaceId,
+        logAnalyticsCustomerId: customerId,
+        logAnalyticsSharedKey: sharedKey,
         elasticsearchEndpoint: getTerraformOutput(envNamespace, 'elasticsearch_endpoint'),
         elasticsearchInternalEndpoint: getTerraformOutput(envNamespace, 'elasticsearch_internal_endpoint'),
         kibanaEndpoint: getTerraformOutput(envNamespace, 'kibana_endpoint'),
@@ -381,8 +396,19 @@ def deployFilebeat(namespace, environment, logAnalyticsWorkspaceId, logAnalytics
     echo "========================================="
     echo "Namespace: ${namespace}"
     echo "Environment: ${environment}"
-    echo "Log Analytics Workspace ID: ${logAnalyticsWorkspaceId}"
+    echo "Log Analytics Workspace ID: ${logAnalyticsWorkspaceId ?: 'EMPTY - Check Terraform outputs'}"
     echo "========================================="
+    
+    // Validar que los parámetros no estén vacíos
+    if (!logAnalyticsWorkspaceId || logAnalyticsWorkspaceId.isEmpty()) {
+        error("ERROR: log_analytics_workspace_id is empty. Please run 'terraform apply' in infra/terraform/environments/${namespace} to create the Log Analytics Workspace.")
+    }
+    if (!logAnalyticsCustomerId || logAnalyticsCustomerId.isEmpty()) {
+        error("ERROR: log_analytics_workspace_customer_id is empty. Please run 'terraform apply' in infra/terraform/environments/${namespace} to create the Log Analytics Workspace.")
+    }
+    if (!logAnalyticsSharedKey || logAnalyticsSharedKey.isEmpty()) {
+        error("ERROR: log_analytics_workspace_primary_shared_key is empty. Please run 'terraform apply' in infra/terraform/environments/${namespace} to create the Log Analytics Workspace.")
+    }
     
     sh """
         chmod +x jenkins/scripts/deploy/deploy-filebeat.sh
