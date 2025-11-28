@@ -281,6 +281,9 @@ def loadMonitoringOutputs(envNamespace) {
  */
 def getLoggingOutputs(envNamespace) {
     return [
+        logAnalyticsWorkspaceId: getTerraformOutput(envNamespace, 'log_analytics_workspace_id'),
+        logAnalyticsCustomerId: getTerraformOutput(envNamespace, 'log_analytics_workspace_customer_id'),
+        logAnalyticsSharedKey: getTerraformOutput(envNamespace, 'log_analytics_workspace_primary_shared_key'),
         elasticsearchEndpoint: getTerraformOutput(envNamespace, 'elasticsearch_endpoint'),
         elasticsearchInternalEndpoint: getTerraformOutput(envNamespace, 'elasticsearch_internal_endpoint'),
         kibanaEndpoint: getTerraformOutput(envNamespace, 'kibana_endpoint'),
@@ -297,7 +300,10 @@ def getLoggingOutputs(envNamespace) {
 def saveLoggingOutputs(envNamespace, loggingOutputs) {
     def outputFile = "${env.WORKSPACE}/.logging-${envNamespace}.env"
     sh """
-        echo "ELASTICSEARCH_ENDPOINT=${loggingOutputs.elasticsearchEndpoint}" > "${outputFile}"
+        echo "LOG_ANALYTICS_WORKSPACE_ID=${loggingOutputs.logAnalyticsWorkspaceId}" > "${outputFile}"
+        echo "LOG_ANALYTICS_CUSTOMER_ID=${loggingOutputs.logAnalyticsCustomerId}" >> "${outputFile}"
+        echo "LOG_ANALYTICS_SHARED_KEY=${loggingOutputs.logAnalyticsSharedKey}" >> "${outputFile}"
+        echo "ELASTICSEARCH_ENDPOINT=${loggingOutputs.elasticsearchEndpoint}" >> "${outputFile}"
         echo "ELASTICSEARCH_INTERNAL_ENDPOINT=${loggingOutputs.elasticsearchInternalEndpoint}" >> "${outputFile}"
         echo "KIBANA_ENDPOINT=${loggingOutputs.kibanaEndpoint}" >> "${outputFile}"
         echo "LOGSTASH_ENDPOINT=${loggingOutputs.logstashEndpoint}" >> "${outputFile}"
@@ -316,6 +322,21 @@ def loadLoggingOutputs(envNamespace) {
         echo "Warning: Logging outputs file not found: ${outputFile}"
         return [:]
     }
+    
+    def logAnalyticsWorkspaceId = sh(
+        script: "grep LOG_ANALYTICS_WORKSPACE_ID '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
+    
+    def logAnalyticsCustomerId = sh(
+        script: "grep LOG_ANALYTICS_CUSTOMER_ID '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
+    
+    def logAnalyticsSharedKey = sh(
+        script: "grep LOG_ANALYTICS_SHARED_KEY '${outputFile}' | cut -d= -f2",
+        returnStdout: true
+    ).trim()
     
     def elasticsearchEndpoint = sh(
         script: "grep ELASTICSEARCH_ENDPOINT '${outputFile}' | cut -d= -f2",
@@ -338,6 +359,9 @@ def loadLoggingOutputs(envNamespace) {
     ).trim()
     
     return [
+        logAnalyticsWorkspaceId: logAnalyticsWorkspaceId,
+        logAnalyticsCustomerId: logAnalyticsCustomerId,
+        logAnalyticsSharedKey: logAnalyticsSharedKey,
         elasticsearchEndpoint: elasticsearchEndpoint,
         elasticsearchInternalEndpoint: elasticsearchInternalEndpoint,
         kibanaEndpoint: kibanaEndpoint,
@@ -351,38 +375,24 @@ def loadLoggingOutputs(envNamespace) {
  * @param environment Environment name (staging/prod)
  * @param elasticsearchEndpoint Elasticsearch endpoint from Azure Container Apps
  */
-def deployFilebeat(namespace, environment, elasticsearchEndpoint) {
+def deployFilebeat(namespace, environment, logAnalyticsWorkspaceId, logAnalyticsCustomerId, logAnalyticsSharedKey) {
     echo "========================================="
     echo "Deploying Filebeat"
     echo "========================================="
     echo "Namespace: ${namespace}"
     echo "Environment: ${environment}"
-    echo "Elasticsearch Endpoint: ${elasticsearchEndpoint}"
+    echo "Log Analytics Workspace ID: ${logAnalyticsWorkspaceId}"
     echo "========================================="
-    
-    // Normalizar el endpoint: agregar http:// y :9200 si no están presentes
-    def normalizedEndpoint = elasticsearchEndpoint
-    if (!normalizedEndpoint.startsWith('http://') && !normalizedEndpoint.startsWith('https://')) {
-        normalizedEndpoint = "http://${normalizedEndpoint}"
-    }
-    if (!normalizedEndpoint.contains(':9200') && !normalizedEndpoint.contains(':443') && !normalizedEndpoint.contains(':80')) {
-        // Remover http:// o https:// temporalmente para agregar el puerto
-        def host = normalizedEndpoint.replaceAll('^https?://', '')
-        normalizedEndpoint = "http://${host}:9200"
-    }
-    
-    echo "Normalized Elasticsearch Endpoint: ${normalizedEndpoint}"
     
     sh """
         chmod +x jenkins/scripts/deploy/deploy-filebeat.sh
         export KCFG="\${KCFG:-}"
-        export ELASTICSEARCH_ENDPOINT="${normalizedEndpoint}"
-        jenkins/scripts/deploy/deploy-filebeat.sh "${namespace}" "${environment}" "${normalizedEndpoint}"
+        jenkins/scripts/deploy/deploy-filebeat.sh "${namespace}" "${environment}" "${logAnalyticsWorkspaceId}" "${logAnalyticsCustomerId}" "${logAnalyticsSharedKey}"
     """
     
     echo ""
     echo "✓ Filebeat deployed successfully"
-    echo "  Logs are being sent to Elasticsearch at: ${elasticsearchEndpoint}"
+    echo "  Logs are being sent to Azure Log Analytics Workspace"
     
     // Verify deployment
     echo ""

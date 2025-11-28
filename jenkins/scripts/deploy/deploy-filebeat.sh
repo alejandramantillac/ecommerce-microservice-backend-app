@@ -1,23 +1,25 @@
 #!/bin/bash
 # Script to deploy Filebeat to Kubernetes
-# Usage: ./jenkins/scripts/deploy-filebeat.sh <namespace> <environment> <elasticsearch-endpoint>
+# Usage: ./jenkins/scripts/deploy-filebeat.sh <namespace> <environment> <log-analytics-workspace-id> <log-analytics-customer-id> <log-analytics-shared-key>
 
 set -e
 
 NAMESPACE="${1:-staging}"
 ENVIRONMENT="${2:-staging}"
-ELASTICSEARCH_ENDPOINT="${3}"
+LOG_ANALYTICS_WORKSPACE_ID="${3}"
+LOG_ANALYTICS_CUSTOMER_ID="${4}"
+LOG_ANALYTICS_SHARED_KEY="${5}"
 
-if [ -z "$NAMESPACE" ] || [ -z "$ENVIRONMENT" ] || [ -z "$ELASTICSEARCH_ENDPOINT" ]; then
-    echo "Usage: $0 <namespace> <environment> <elasticsearch-endpoint>"
-    echo "Example: $0 staging staging http://elasticsearch-app.default-domain:9200"
+if [ -z "$NAMESPACE" ] || [ -z "$ENVIRONMENT" ] || [ -z "$LOG_ANALYTICS_WORKSPACE_ID" ] || [ -z "$LOG_ANALYTICS_CUSTOMER_ID" ] || [ -z "$LOG_ANALYTICS_SHARED_KEY" ]; then
+    echo "Usage: $0 <namespace> <environment> <log-analytics-workspace-id> <log-analytics-customer-id> <log-analytics-shared-key>"
+    echo "Example: $0 staging staging <workspace-id> <customer-id> <shared-key>"
     exit 1
 fi
 
 echo "========================================="
 echo "Deploying Filebeat to ${NAMESPACE}"
 echo "Environment: ${ENVIRONMENT}"
-echo "Elasticsearch Endpoint: ${ELASTICSEARCH_ENDPOINT}"
+echo "Log Analytics Workspace ID: ${LOG_ANALYTICS_WORKSPACE_ID}"
 echo "========================================="
 
 # Check kubectl availability
@@ -53,7 +55,9 @@ fi
 # Export variables for envsubst
 export NAMESPACE
 export ENVIRONMENT
-export ELASTICSEARCH_ENDPOINT
+export LOG_ANALYTICS_WORKSPACE_ID
+export LOG_ANALYTICS_CUSTOMER_ID
+export LOG_ANALYTICS_SHARED_KEY
 
 # Check if namespace exists
 echo ""
@@ -66,20 +70,23 @@ else
     echo "✓ Namespace exists"
 fi
 
-# Elasticsearch endpoint is provided as parameter (from Azure Container Apps)
-echo ""
-echo "Using Elasticsearch endpoint: ${ELASTICSEARCH_ENDPOINT}"
-
 # Function to substitute variables
 substitute_vars() {
     local file="$1"
     if [ "$USE_ENVSUBST" = true ]; then
         envsubst < "$file"
     else
+        # Escapar caracteres especiales para sed
+        local escaped_workspace_id=$(echo "$LOG_ANALYTICS_WORKSPACE_ID" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        local escaped_customer_id=$(echo "$LOG_ANALYTICS_CUSTOMER_ID" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        local escaped_shared_key=$(echo "$LOG_ANALYTICS_SHARED_KEY" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        
         # Replace basic variables
         sed -e "s/\${NAMESPACE}/${NAMESPACE}/g" \
             -e "s/\${ENVIRONMENT}/${ENVIRONMENT}/g" \
-            -e "s|\${ELASTICSEARCH_ENDPOINT}|${ELASTICSEARCH_ENDPOINT}|g" \
+            -e "s/\${LOG_ANALYTICS_WORKSPACE_ID}/${escaped_workspace_id}/g" \
+            -e "s/\${LOG_ANALYTICS_CUSTOMER_ID}/${escaped_customer_id}/g" \
+            -e "s/\${LOG_ANALYTICS_SHARED_KEY}/${escaped_shared_key}/g" \
             "$file"
     fi
 }

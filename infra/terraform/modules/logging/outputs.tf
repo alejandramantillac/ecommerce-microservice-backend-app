@@ -28,3 +28,14 @@ output "log_analytics_workspace_id" {
   value       = azurerm_log_analytics_workspace.elk.id
 }
 
+output "log_analytics_workspace_customer_id" {
+  description = "Customer ID (Workspace ID) del Log Analytics Workspace para Filebeat"
+  value       = azurerm_log_analytics_workspace.elk.workspace_id
+}
+
+output "log_analytics_workspace_primary_shared_key" {
+  description = "Primary Shared Key del Log Analytics Workspace para Filebeat"
+  value       = azurerm_log_analytics_workspace.elk.primary_shared_key
+  sensitive   = true
+}
+

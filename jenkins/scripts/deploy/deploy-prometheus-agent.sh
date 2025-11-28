@@ -59,6 +59,25 @@ else
     echo "Warning: envsubst not found. Will use sed for variable substitution."
 fi
 
+# Validar que el endpoint no esté vacío
+if [ -z "$AZURE_INGESTION_ENDPOINT" ] || [ "$AZURE_INGESTION_ENDPOINT" = "" ]; then
+    echo "ERROR: AZURE_INGESTION_ENDPOINT is empty or not set!"
+    echo "Please check that the monitoring outputs were loaded correctly."
+    exit 1
+fi
+
+# Validar que el endpoint tenga el formato correcto (debe empezar con https://)
+if [[ ! "$AZURE_INGESTION_ENDPOINT" =~ ^https?:// ]]; then
+    echo "ERROR: AZURE_INGESTION_ENDPOINT must start with http:// or https://"
+    echo "Current value: ${AZURE_INGESTION_ENDPOINT}"
+    exit 1
+fi
+
+# Asegurar que el endpoint no termine con /
+AZURE_INGESTION_ENDPOINT=$(echo "$AZURE_INGESTION_ENDPOINT" | sed 's|/$||')
+
+echo "✓ Validated endpoint: ${AZURE_INGESTION_ENDPOINT}"
+
 # Export variables for envsubst
 export NAMESPACE
 export ENVIRONMENT
@@ -73,12 +92,18 @@ substitute_vars() {
     if [ "$USE_ENVSUBST" = true ]; then
         envsubst < "$file"
     else
+        # Escapar caracteres especiales para sed
+        local escaped_endpoint=$(echo "$AZURE_INGESTION_ENDPOINT" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        local escaped_client_id=$(echo "$AZURE_CLIENT_ID" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        local escaped_tenant_id=$(echo "$AZURE_TENANT_ID" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        local escaped_client_secret=$(echo "$AZURE_CLIENT_SECRET" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        
         sed -e "s/\${NAMESPACE}/${NAMESPACE}/g" \
             -e "s/\${ENVIRONMENT}/${ENVIRONMENT}/g" \
-            -e "s|\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}|${AZURE_INGESTION_ENDPOINT}|g" \
-            -e "s/\${AZURE_CLIENT_ID}/${AZURE_CLIENT_ID}/g" \
-            -e "s/\${AZURE_TENANT_ID}/${AZURE_TENANT_ID}/g" \
-            -e "s/\${AZURE_CLIENT_SECRET}/${AZURE_CLIENT_SECRET}/g" \
+            -e "s|\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}|${escaped_endpoint}|g" \
+            -e "s/\${AZURE_CLIENT_ID}/${escaped_client_id}/g" \
+            -e "s/\${AZURE_TENANT_ID}/${escaped_tenant_id}/g" \
+            -e "s/\${AZURE_CLIENT_SECRET}/${escaped_client_secret}/g" \
             "$file"
     fi
 }
@@ -103,11 +128,24 @@ TEMP_CONFIG=$(mktemp)
 substitute_vars k8s/monitoring/prometheus-config-remote-write.yaml > "$TEMP_CONFIG"
 # Verificar que la URL fue sustituida (no debe contener ${AZURE_PROMETHEUS_INGESTION_ENDPOINT})
 if grep -q '\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}' "$TEMP_CONFIG"; then
-    echo "Error: Variable substitution failed. AZURE_PROMETHEUS_INGESTION_ENDPOINT not replaced in ConfigMap"
+    echo "ERROR: Variable substitution failed. AZURE_PROMETHEUS_INGESTION_ENDPOINT not replaced in ConfigMap"
     echo "Endpoint value: ${AZURE_INGESTION_ENDPOINT}"
+    echo "Debug: Showing remote_write section:"
+    grep -A 5 "remote_write" "$TEMP_CONFIG" || true
     rm -f "$TEMP_CONFIG"
     exit 1
 fi
+
+# Verificar que la URL contiene https://
+if ! grep -q "url: 'https://" "$TEMP_CONFIG"; then
+    echo "ERROR: URL in remote_write does not start with https://"
+    echo "Debug: Showing remote_write section:"
+    grep -A 3 "remote_write" "$TEMP_CONFIG" | head -5
+    rm -f "$TEMP_CONFIG"
+    exit 1
+fi
+
+echo "✓ URL substitution verified"
 if kubectl --kubeconfig="$KCFG" apply -f "$TEMP_CONFIG"; then
     echo "✓ ConfigMap deployed"
     rm -f "$TEMP_CONFIG"

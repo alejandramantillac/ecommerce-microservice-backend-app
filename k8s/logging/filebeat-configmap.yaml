@@ -36,8 +36,15 @@ data:
             cluster: "ecommerce-microservices"
             environment: "${ENVIRONMENT}"
     
-    output.elasticsearch:
-      hosts: ["${ELASTICSEARCH_ENDPOINT}"]
+    output.azure_loganalytics:
+      workspace_id: "${LOG_ANALYTICS_WORKSPACE_ID}"
+      customer_id: "${LOG_ANALYTICS_CUSTOMER_ID}"
+      shared_key: "${LOG_ANALYTICS_SHARED_KEY}"
+      log_type: "Filebeat"
+      fields_under_root: true
+      fields:
+        cluster: "ecommerce-microservices"
+        environment: "${ENVIRONMENT}"
     
     logging.level: info
     logging.to_files: true

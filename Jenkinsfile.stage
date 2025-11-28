@@ -371,7 +371,9 @@ pipeline {
                         commonFunctions.deployFilebeat(
                             env.K8S_NAMESPACE,
                             env.TARGET_ENVIRONMENT,
-                            loggingOutputs.elasticsearchInternalEndpoint
+                            loggingOutputs.logAnalyticsWorkspaceId,
+                            loggingOutputs.logAnalyticsCustomerId,
+                            loggingOutputs.logAnalyticsSharedKey
                         )
                     }
                 }
