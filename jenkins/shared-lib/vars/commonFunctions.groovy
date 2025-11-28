@@ -107,6 +107,12 @@ def deployToKubernetes(environment, namespace, registry, imageTag, changedServic
     echo "Step 1: Applying ConfigMap for ${environment}..."
     applyConfigMap(environment, namespace)
 
+    // Step 1.5: Setup Ingress Controller and TLS (before deploying services)
+    if (environment == 'staging' || environment == 'prod') {
+        echo "Step 1.5: Setting up Ingress Controller and TLS..."
+        setupIngressAndTls(environment, namespace)
+    }
+
     def deployListInOrder = [
         commonVars.getCoreServices(),
         commonVars.getMonitoringServices()
@@ -133,6 +139,17 @@ def deployToKubernetes(environment, namespace, registry, imageTag, changedServic
     }
     if (!businessStages.isEmpty()) {
         parallel businessStages
+    }
+
+    // Step 5: Verify Ingress configuration (after all services are deployed)
+    if (environment == 'staging' || environment == 'prod') {
+        echo "Step 5: Verifying Ingress configuration..."
+        def ingressIp = getIngressControllerIp()
+        if (ingressIp) {
+            echo "✓ API Gateway accessible via HTTPS at: https://${ingressIp}"
+            echo "  Health check: https://${ingressIp}/actuator/health"
+            echo "  Services: https://${ingressIp}/user-service/actuator/health"
+        }
     }
 
     if (!deployedServices.isEmpty()) {
@@ -197,6 +214,280 @@ def applyIngress(environment, namespace) {
             echo "Services will be accessible via LoadBalancer (if configured)"
         fi
     """
+}
+
+/**
+ * Setup Ingress Controller if not already installed
+ * @param namespace Kubernetes namespace (not used, but kept for consistency)
+ */
+def setupIngressControllerIfNeeded() {
+    echo "Checking if NGINX Ingress Controller is installed..."
+    
+    def ingressControllerExists = sh(
+        script: """
+            kubectl --kubeconfig="\${KCFG}" get namespace ingress-nginx >/dev/null 2>&1 && \
+            kubectl --kubeconfig="\${KCFG}" get deployment ingress-nginx-controller -n ingress-nginx >/dev/null 2>&1
+        """,
+        returnStatus: true
+    ) == 0
+    
+    if (!ingressControllerExists) {
+        echo "Installing NGINX Ingress Controller..."
+        sh """
+            kubectl --kubeconfig="\${KCFG}" apply -f k8s/ingress/00-nginx-ingress-controller.yaml
+        """
+        
+        echo "Waiting for Ingress Controller to be ready..."
+        sh """
+            timeout=300
+            elapsed=0
+            interval=10
+            while [ \$elapsed -lt \$timeout ]; do
+                ready=\$(kubectl --kubeconfig="\${KCFG}" get deployment ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.readyReplicas}' 2>/dev/null || echo "0")
+                desired=\$(kubectl --kubeconfig="\${KCFG}" get deployment ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.replicas}' 2>/dev/null || echo "0")
+                if [ "\$ready" = "\$desired" ] && [ "\$desired" != "0" ]; then
+                    echo "✓ Ingress Controller is ready"
+                    break
+                fi
+                echo "  Waiting for Ingress Controller... (\$elapsed/\$timeout seconds) - Ready: \$ready/\$desired"
+                sleep \$interval
+                elapsed=\$((elapsed + interval))
+            done
+        """
+        echo "✓ NGINX Ingress Controller installed"
+    } else {
+        echo "✓ NGINX Ingress Controller already installed"
+    }
+}
+
+/**
+ * Get Ingress Controller LoadBalancer IP
+ * @return IP address or empty string if not available
+ */
+def getIngressControllerIp() {
+    def ip = sh(
+        script: """
+            kubectl --kubeconfig="\${KCFG}" get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].ip}' 2>/dev/null || \
+            kubectl --kubeconfig="\${KCFG}" get svc ingress-nginx-controller -n ingress-nginx -o jsonpath='{.status.loadBalancer.ingress[0].hostname}' 2>/dev/null || \
+            echo ""
+        """,
+        returnStdout: true
+    ).trim()
+    
+    if (ip) {
+        echo "✓ Ingress Controller IP: ${ip}"
+    } else {
+        echo "⚠ Ingress Controller IP not yet assigned (may take 2-5 minutes)"
+    }
+    
+    return ip
+}
+
+/**
+ * Wait for Ingress Controller to get an IP address
+ * @param timeoutSeconds Maximum time to wait (default: 300)
+ * @return IP address or empty string if timeout
+ */
+def waitForIngressControllerIp(timeoutSeconds = 300) {
+    echo "Waiting for Ingress Controller to get an IP address..."
+    
+    def ip = ""
+    def elapsed = 0
+    def interval = 10
+    
+    while (elapsed < timeoutSeconds) {
+        ip = getIngressControllerIp()
+        if (ip) {
+            return ip
+        }
+        
+        echo "  Waiting for IP assignment... (${elapsed}/${timeoutSeconds} seconds)"
+        sleep(interval)
+        elapsed += interval
+    }
+    
+    echo "⚠ Timeout waiting for Ingress Controller IP"
+    return ""
+}
+
+/**
+ * Generate TLS certificate for Ingress
+ * @param environment Environment name (staging/prod)
+ * @param host Hostname or IP for the certificate
+ */
+def generateTlsCertificateForIngress(environment, host) {
+    echo "Generating TLS certificate for ${environment} (host: ${host})..."
+    
+    sh """
+        cd k8s/ingress
+        chmod +x 01-generate-self-signed-cert.sh || true
+        
+        # Check if openssl is available
+        if command -v openssl >/dev/null 2>&1; then
+            # Generate certificate using the script
+            if [ -f "01-generate-self-signed-cert.sh" ]; then
+                bash 01-generate-self-signed-cert.sh "${environment}" "${host}"
+            else
+                # Fallback: generate directly with openssl
+                mkdir -p certs
+                openssl req -x509 -nodes -days 365 -newkey rsa:2048 \\
+                    -keyout "certs/${environment}.key" \\
+                    -out "certs/${environment}.crt" \\
+                    -subj "/CN=${host}" \\
+                    -addext "subjectAltName=IP:${host},DNS:${host}" 2>/dev/null || \\
+                openssl req -x509 -nodes -days 365 -newkey rsa:2048 \\
+                    -keyout "certs/${environment}.key" \\
+                    -out "certs/${environment}.crt" \\
+                    -subj "/CN=${host}"
+                
+                # Encode to base64
+                KEY_B64=\$(cat "certs/${environment}.key" | base64 -w 0 2>/dev/null || cat "certs/${environment}.key" | base64 | tr -d '\\n')
+                CRT_B64=\$(cat "certs/${environment}.crt" | base64 -w 0 2>/dev/null || cat "certs/${environment}.crt" | base64 | tr -d '\\n')
+                
+                # Generate Secret YAML
+                cat > "02-tls-secret-${environment}.yaml" <<EOF
+apiVersion: v1
+kind: Secret
+metadata:
+  name: tls-secret-${environment}
+  namespace: ${environment}
+  labels:
+    environment: ${environment}
+    managed-by: jenkins
+type: kubernetes.io/tls
+data:
+  tls.key: \${KEY_B64}
+  tls.crt: \${CRT_B64}
+EOF
+            fi
+            echo "✓ TLS certificate generated"
+        else
+            echo "⚠ OpenSSL not available, skipping certificate generation"
+            echo "  Certificate will need to be generated manually or use Let's Encrypt"
+        fi
+    """
+}
+
+/**
+ * Setup Ingress with TLS for API Gateway
+ * @param environment Environment name (staging/prod)
+ * @param namespace Kubernetes namespace
+ * @param ingressIp IP address of the Ingress Controller
+ */
+def setupIngressWithTls(environment, namespace, ingressIp) {
+    if (!ingressIp) {
+        echo "⚠ No Ingress Controller IP available, skipping Ingress setup"
+        return
+    }
+    
+    echo "Setting up Ingress with TLS for ${environment}..."
+    
+    // Generate TLS certificate if needed
+    def tlsSecretExists = sh(
+        script: """
+            kubectl --kubeconfig="\${KCFG}" get secret tls-secret-${environment} -n ${namespace} >/dev/null 2>&1
+        """,
+        returnStatus: true
+    ) == 0
+    
+    if (!tlsSecretExists) {
+        generateTlsCertificateForIngress(environment, ingressIp)
+        
+        // Apply TLS secret
+        sh """
+            if [ -f "k8s/ingress/02-tls-secret-${environment}.yaml" ]; then
+                kubectl --kubeconfig="\${KCFG}" apply -f k8s/ingress/02-tls-secret-${environment}.yaml
+                echo "✓ TLS Secret applied"
+            else
+                echo "⚠ TLS Secret file not found, Ingress will work but without TLS"
+            fi
+        """
+    } else {
+        echo "✓ TLS Secret already exists"
+    }
+    
+    // Generate Ingress resource dynamically with the IP
+    def ingressYaml = """
+apiVersion: networking.k8s.io/v1
+kind: Ingress
+metadata:
+  name: api-gateway-ingress
+  namespace: ${namespace}
+  labels:
+    environment: ${environment}
+    managed-by: jenkins
+  annotations:
+    nginx.ingress.kubernetes.io/ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/force-ssl-redirect: "true"
+    nginx.ingress.kubernetes.io/enable-cors: "true"
+    nginx.ingress.kubernetes.io/cors-allow-origin: "*"
+    nginx.ingress.kubernetes.io/cors-allow-methods: "GET, POST, PUT, DELETE, PATCH, OPTIONS"
+    nginx.ingress.kubernetes.io/cors-allow-headers: "DNT,User-Agent,X-Requested-With,If-Modified-Since,Cache-Control,Content-Type,Range,Authorization"
+spec:
+  ingressClassName: nginx
+  tls:
+  - hosts:
+    - ${ingressIp}
+    secretName: tls-secret-${environment}
+  rules:
+  - host: ${ingressIp}
+    http:
+      paths:
+      - path: /
+        pathType: Prefix
+        backend:
+          service:
+            name: api-gateway
+            port:
+              number: 8080
+"""
+    
+    // Write to temporary file and apply
+    sh """
+        cat > /tmp/ingress-${environment}.yaml <<'EOF'
+${ingressYaml}
+EOF
+        kubectl --kubeconfig="\${KCFG}" apply -f /tmp/ingress-${environment}.yaml
+        echo "✓ Ingress configured with TLS for IP: ${ingressIp}"
+    """
+    
+    echo ""
+    echo "========================================="
+    echo "Ingress Configuration"
+    echo "========================================="
+    echo "Environment: ${environment}"
+    echo "Ingress IP: ${ingressIp}"
+    echo "HTTPS URL: https://${ingressIp}/actuator/health"
+    echo "========================================="
+}
+
+/**
+ * Complete Ingress and TLS setup for an environment
+ * @param environment Environment name (staging/prod)
+ * @param namespace Kubernetes namespace
+ */
+def setupIngressAndTls(environment, namespace) {
+    echo "========================================="
+    echo "Setting up Ingress Controller and TLS"
+    echo "Environment: ${environment}"
+    echo "========================================="
+    
+    // Step 1: Install Ingress Controller if needed
+    setupIngressControllerIfNeeded()
+    
+    // Step 2: Wait for IP assignment
+    def ingressIp = waitForIngressControllerIp(300)
+    
+    if (!ingressIp) {
+        echo "⚠ Could not get Ingress Controller IP, but continuing..."
+        echo "  Ingress will be configured when IP becomes available"
+        return
+    }
+    
+    // Step 3: Setup Ingress with TLS
+    setupIngressWithTls(environment, namespace, ingressIp)
+    
+    echo "✓ Ingress and TLS setup completed"
 }
 
 def getAndConfigureKubeConfigFromTerraform(envNamespace, armClientId, armClientSecret, armTenantId) {

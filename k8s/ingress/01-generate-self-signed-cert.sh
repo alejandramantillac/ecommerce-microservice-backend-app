@@ -1,18 +1,18 @@
 #!/bin/bash
 # Script to generate self-signed TLS certificates for Ingress
-# Usage: ./01-generate-self-signed-cert.sh <namespace> [domain]
+# Usage: ./01-generate-self-signed-cert.sh <namespace> [domain-or-ip]
 # Example: ./01-generate-self-signed-cert.sh staging api-staging.example.com
-# Example: ./01-generate-self-signed-cert.sh prod api.example.com
+# Example: ./01-generate-self-signed-cert.sh prod 172.168.101.82
 
 set -e
 
 NAMESPACE="${1:-}"
-DOMAIN="${2:-localhost}"
+DOMAIN_OR_IP="${2:-localhost}"
 
 if [ -z "$NAMESPACE" ]; then
-    echo "Usage: $0 <namespace> [domain]"
+    echo "Usage: $0 <namespace> [domain-or-ip]"
     echo "  namespace: staging or prod"
-    echo "  domain: (optional) domain name for certificate, defaults to localhost"
+    echo "  domain-or-ip: (optional) domain name or IP address for certificate, defaults to localhost"
     exit 1
 fi
 
@@ -28,7 +28,7 @@ OUTPUT_FILE="02-tls-secret-${NAMESPACE}.yaml"
 echo "========================================="
 echo "Generating self-signed TLS certificate"
 echo "Namespace: ${NAMESPACE}"
-echo "Domain: ${DOMAIN}"
+echo "Domain/IP: ${DOMAIN_OR_IP}"
 echo "========================================="
 
 # Create certs directory
@@ -38,10 +38,23 @@ mkdir -p "${CERT_DIR}"
 echo "Generating private key..."
 openssl genrsa -out "${CERT_DIR}/${NAMESPACE}.key" 2048
 
+# Check if DOMAIN_OR_IP is an IP address
+if [[ "$DOMAIN_OR_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
+    # It's an IP address
+    echo "Detected IP address: ${DOMAIN_OR_IP}"
+    SUBJECT_ALT_NAME="IP:${DOMAIN_OR_IP}"
+    CN="${DOMAIN_OR_IP}"
+else
+    # It's a domain name
+    echo "Detected domain name: ${DOMAIN_OR_IP}"
+    SUBJECT_ALT_NAME="DNS:${DOMAIN_OR_IP},DNS:*.${DOMAIN_OR_IP}"
+    CN="${DOMAIN_OR_IP}"
+fi
+
 # Generate certificate signing request
 echo "Generating certificate signing request..."
 openssl req -new -key "${CERT_DIR}/${NAMESPACE}.key" -out "${CERT_DIR}/${NAMESPACE}.csr" \
-    -subj "/CN=${DOMAIN}/O=Ingress Controller"
+    -subj "/CN=${CN}/O=Ingress Controller"
 
 # Generate self-signed certificate (valid for 365 days)
 echo "Generating self-signed certificate..."
@@ -60,8 +73,7 @@ keyUsage = nonRepudiation, digitalSignature, keyEncipherment
 subjectAltName = @alt_names
 
 [alt_names]
-DNS.1 = ${DOMAIN}
-DNS.2 = *.${DOMAIN}
+${SUBJECT_ALT_NAME}
 EOF
 )
 
@@ -80,7 +92,7 @@ fi
 cat > "${OUTPUT_FILE}" <<EOF
 # TLS Secret for ${NAMESPACE^} Environment
 # Generated on: $(date)
-# Domain: ${DOMAIN}
+# Domain/IP: ${DOMAIN_OR_IP}
 #
 # IMPORTANT: This is a self-signed certificate for development/testing.
 # For production, use a valid certificate from Let's Encrypt or Azure Key Vault.
