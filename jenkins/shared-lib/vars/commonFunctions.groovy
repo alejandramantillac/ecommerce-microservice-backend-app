@@ -924,10 +924,12 @@ def generateGrafanaApiKey(resourceGroup, grafanaName, keyName = 'jenkins-migrati
     
     // Ejecutar el script - la API key se imprime SOLO en stdout
     // Los mensajes informativos van a stderr (redirigidos a /dev/null para no interferir)
+    // Construir el comando con la regex escapada correctamente
+    def regexPattern = '^[A-Za-z0-9_-]{20,}\$'
     def apiKeyRaw = sh(
         script: """
             chmod +x jenkins/scripts/generate-grafana-api-key.sh || true
-            jenkins/scripts/generate-grafana-api-key.sh "${resourceGroup}" "${grafanaName}" "${keyName}" 2>/dev/null | grep -E '^[A-Za-z0-9_-]{20,}$' | head -1
+            jenkins/scripts/generate-grafana-api-key.sh "${resourceGroup}" "${grafanaName}" "${keyName}" 2>/dev/null | grep -E '${regexPattern}' | head -1
         """,
         returnStdout: true
     ).trim()
