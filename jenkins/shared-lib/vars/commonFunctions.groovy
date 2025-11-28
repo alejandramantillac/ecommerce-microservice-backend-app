@@ -936,38 +936,58 @@ def generateGrafanaApiKey(resourceGroup, grafanaName, keyName = 'jenkins-migrati
         returnStdout: true
     ).trim()
     
+    echo "Debug: First extraction attempt result length: ${apiKeyRaw?.length() ?: 0}"
+    
     // Si no se obtuvo, intentar leer del archivo .grafana-api-key
     if (!apiKeyRaw || apiKeyRaw.isEmpty() || apiKeyRaw.length() < 20) {
         if (fileExists('.grafana-api-key')) {
+            echo "Debug: Attempting to read from .grafana-api-key file"
             apiKeyRaw = readFile('.grafana-api-key').trim()
+            echo "Debug: File content length: ${apiKeyRaw?.length() ?: 0}"
         }
     }
     
     // Si aún no se tiene, ejecutar de nuevo y extraer de cualquier formato
     if (!apiKeyRaw || apiKeyRaw.isEmpty() || apiKeyRaw.length() < 20) {
+        echo "Debug: Attempting full output extraction"
         def fullOutput = sh(
             script: """
                 jenkins/scripts/generate-grafana-api-key.sh "${resourceGroup}" "${grafanaName}" "${keyName}" 2>&1 || true
             """,
             returnStdout: true
-        )
+        ).trim()
+        
+        echo "Debug: Full output length: ${fullOutput?.length() ?: 0}"
+        echo "Debug: Full output preview (first 200 chars): ${fullOutput?.take(200) ?: 'empty'}"
         
         // Buscar líneas que parezcan API keys (formato Grafana: alfanumérico, guiones, guiones bajos, 20+ caracteres)
-        fullOutput.eachLine { line ->
-            def trimmed = line.trim()
-            // Las API keys de Grafana Azure suelen ser strings alfanuméricos largos
-            if (trimmed.matches(/^[A-Za-z0-9_-]{20,}$/) && !trimmed.contains(' ') && !trimmed.contains('API') && !trimmed.contains('Key')) {
-                apiKeyRaw = trimmed
+        // Usar split en lugar de eachLine para compatibilidad con Jenkins CPS
+        if (fullOutput) {
+            def lines = fullOutput.split('\n')
+            echo "Debug: Number of lines in output: ${lines.length}"
+            
+            for (def i = 0; i < lines.length; i++) {
+                def line = lines[i]
+                def trimmed = line?.trim()
+                // Las API keys de Grafana Azure suelen ser strings alfanuméricos largos
+                if (trimmed && trimmed.length() >= 20 && trimmed.matches(/^[A-Za-z0-9_-]+$/) && !trimmed.contains(' ') && !trimmed.contains('API') && !trimmed.contains('Key') && !trimmed.contains('Error')) {
+                    echo "Debug: Found potential API key in line ${i + 1}, length: ${trimmed.length()}"
+                    apiKeyRaw = trimmed
+                    break
+                }
             }
-        }
-        
-        // Si aún no se encontró, buscar después de "API Key:"
-        if (!apiKeyRaw || apiKeyRaw.isEmpty() || apiKeyRaw.length() < 20) {
-            fullOutput.eachLine { line ->
-                if (line.contains('API Key:') && !line.contains('⚠') && !line.contains('Error')) {
-                    def match = line =~ /API Key:\s*([A-Za-z0-9_-]{20,})/
-                    if (match) {
-                        apiKeyRaw = match[0][1].trim()
+            
+            // Si aún no se encontró, buscar después de "API Key:"
+            if (!apiKeyRaw || apiKeyRaw.isEmpty() || apiKeyRaw.length() < 20) {
+                for (def i = 0; i < lines.length; i++) {
+                    def line = lines[i]
+                    if (line && line.contains('API Key:') && !line.contains('⚠') && !line.contains('Error')) {
+                        def match = line =~ /API Key:\s*([A-Za-z0-9_-]{20,})/
+                        if (match) {
+                            echo "Debug: Found API key after 'API Key:' in line ${i + 1}"
+                            apiKeyRaw = match[0][1].trim()
+                            break
+                        }
                     }
                 }
             }
