@@ -922,33 +922,50 @@ def generateGrafanaApiKey(resourceGroup, grafanaName, keyName = 'jenkins-migrati
     echo "Key Name: ${keyName}"
     echo "========================================="
     
-    sh """
-        chmod +x jenkins/scripts/generate-grafana-api-key.sh || true
-        jenkins/scripts/generate-grafana-api-key.sh "${resourceGroup}" "${grafanaName}" "${keyName}" > .grafana-api-key-output.txt 2>&1 || true
-    """
+    // Ejecutar el script - la API key se imprime en stdout, mensajes en stderr
+    def apiKey = sh(
+        script: """
+            chmod +x jenkins/scripts/generate-grafana-api-key.sh || true
+            jenkins/scripts/generate-grafana-api-key.sh "${resourceGroup}" "${grafanaName}" "${keyName}" 2>/dev/null | tail -1
+        """,
+        returnStdout: true
+    ).trim()
     
-    // Leer la API key del output
-    def apiKeyOutput = ''
-    if (fileExists('.grafana-api-key-output.txt')) {
-        apiKeyOutput = readFile('.grafana-api-key-output.txt').trim()
+    // Si no se obtuvo de stdout, intentar leer del archivo .grafana-api-key
+    if (!apiKey || apiKey.isEmpty() || apiKey.length() < 10) {
+        if (fileExists('.grafana-api-key')) {
+            apiKey = readFile('.grafana-api-key').trim()
+        }
     }
     
-    // Extraer la API key (buscar la línea que contiene "API Key:")
-    def apiKey = ''
-    if (apiKeyOutput) {
-        apiKeyOutput.eachLine { line ->
-            if (line.contains('API Key:') && !line.contains('⚠') && !line.contains('Error')) {
+    // Si aún no se tiene, ejecutar de nuevo y buscar en stderr también
+    if (!apiKey || apiKey.isEmpty() || apiKey.length() < 10) {
+        def fullOutput = sh(
+            script: """
+                jenkins/scripts/generate-grafana-api-key.sh "${resourceGroup}" "${grafanaName}" "${keyName}" 2>&1 || true
+            """,
+            returnStdout: true
+        ).trim()
+        
+        // Buscar la línea con "API Key: " y extraer el valor
+        fullOutput.eachLine { line ->
+            if (line.contains('API Key:') && !line.contains('⚠') && !line.contains('Error') && !line.contains('IMPORTANT')) {
                 def match = line =~ /API Key:\s*(.+)/
                 if (match) {
                     apiKey = match[0][1].trim()
                 }
             }
         }
-    }
-    
-    // Si no se encontró, intentar leer del archivo .grafana-api-key si existe
-    if (!apiKey && fileExists('.grafana-api-key')) {
-        apiKey = readFile('.grafana-api-key').trim()
+        
+        // Si aún no se encontró, buscar cualquier línea que parezca una API key (formato típico)
+        if (!apiKey || apiKey.isEmpty() || apiKey.length() < 10) {
+            fullOutput.eachLine { line ->
+                // Las API keys de Grafana suelen tener un formato específico
+                if (line.matches(/^[A-Za-z0-9_-]{20,}$/)) {
+                    apiKey = line.trim()
+                }
+            }
+        }
     }
     
     if (apiKey && apiKey.length() > 10) {
@@ -956,9 +973,7 @@ def generateGrafanaApiKey(resourceGroup, grafanaName, keyName = 'jenkins-migrati
         return apiKey
     } else {
         echo "⚠ Warning: Could not extract API key from output"
-        if (apiKeyOutput) {
-            echo "Output: ${apiKeyOutput}"
-        }
+        echo "Attempted to generate API key but extraction failed"
         return null
     }
 }

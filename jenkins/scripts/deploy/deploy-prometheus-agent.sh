@@ -92,18 +92,20 @@ substitute_vars() {
     if [ "$USE_ENVSUBST" = true ]; then
         envsubst < "$file"
     else
-        # Escapar caracteres especiales para sed
-        local escaped_endpoint=$(echo "$AZURE_INGESTION_ENDPOINT" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        # Escapar caracteres especiales para sed usando | como delimitador
+        # Para URLs, necesitamos escapar : / y otros caracteres especiales
+        local escaped_endpoint=$(echo "$AZURE_INGESTION_ENDPOINT" | sed 's/[[\.*^$()+?{|:]/\\&/g' | sed 's|/|\\/|g')
         local escaped_client_id=$(echo "$AZURE_CLIENT_ID" | sed 's/[[\.*^$()+?{|]/\\&/g')
         local escaped_tenant_id=$(echo "$AZURE_TENANT_ID" | sed 's/[[\.*^$()+?{|]/\\&/g')
         local escaped_client_secret=$(echo "$AZURE_CLIENT_SECRET" | sed 's/[[\.*^$()+?{|]/\\&/g')
         
-        sed -e "s/\${NAMESPACE}/${NAMESPACE}/g" \
-            -e "s/\${ENVIRONMENT}/${ENVIRONMENT}/g" \
+        # Usar | como delimitador para evitar problemas con / en URLs
+        sed -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
+            -e "s|\${ENVIRONMENT}|${ENVIRONMENT}|g" \
             -e "s|\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}|${escaped_endpoint}|g" \
-            -e "s/\${AZURE_CLIENT_ID}/${escaped_client_id}/g" \
-            -e "s/\${AZURE_TENANT_ID}/${escaped_tenant_id}/g" \
-            -e "s/\${AZURE_CLIENT_SECRET}/${escaped_client_secret}/g" \
+            -e "s|\${AZURE_CLIENT_ID}|${escaped_client_id}|g" \
+            -e "s|\${AZURE_TENANT_ID}|${escaped_tenant_id}|g" \
+            -e "s|\${AZURE_CLIENT_SECRET}|${escaped_client_secret}|g" \
             "$file"
     fi
 }
@@ -146,14 +148,37 @@ if ! grep -q "url: 'https://" "$TEMP_CONFIG"; then
 fi
 
 echo "✓ URL substitution verified"
+
+# Mostrar la URL que se va a usar (para debugging)
+echo "Debug: URL that will be used:"
+grep -A 1 "remote_write:" "$TEMP_CONFIG" | grep "url:" || true
+
+# Eliminar el ConfigMap existente si existe para forzar la actualización
+if kubectl --kubeconfig="$KCFG" get configmap prometheus-config -n "${NAMESPACE}" &>/dev/null; then
+    echo "Deleting existing ConfigMap to force update..."
+    kubectl --kubeconfig="$KCFG" delete configmap prometheus-config -n "${NAMESPACE}" || true
+    sleep 2
+fi
+
+# Aplicar el nuevo ConfigMap
 if kubectl --kubeconfig="$KCFG" apply -f "$TEMP_CONFIG"; then
     echo "✓ ConfigMap deployed"
-    rm -f "$TEMP_CONFIG"
+    
+    # Verificar que la URL se aplicó correctamente
+    echo "Verifying ConfigMap was updated correctly..."
+    ACTUAL_URL=$(kubectl --kubeconfig="$KCFG" get configmap prometheus-config -n "${NAMESPACE}" -o jsonpath='{.data.prometheus\.yml}' | grep -A 1 "remote_write:" | grep "url:" | sed "s/.*url: '\(.*\)'.*/\1/" || echo "")
+    if [[ "$ACTUAL_URL" == *"https://"* ]]; then
+        echo "✓ ConfigMap verified: URL is correct (${ACTUAL_URL})"
+    else
+        echo "⚠ Warning: ConfigMap URL may not be correct. Actual: ${ACTUAL_URL}"
+        echo "Expected: ${AZURE_INGESTION_ENDPOINT}/api/v1/write"
+    fi
 else
     echo "✗ Failed to deploy ConfigMap"
     rm -f "$TEMP_CONFIG"
     exit 1
 fi
+rm -f "$TEMP_CONFIG"
 
 # Step 3: Deploy Alert Rules ConfigMap (if exists)
 if [ -f "k8s/monitoring/prometheus-alerts-configmap.yaml" ]; then

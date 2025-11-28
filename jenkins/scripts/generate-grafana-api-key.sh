@@ -62,27 +62,21 @@ if [ $? -eq 0 ]; then
     fi
     
     if [ -n "$API_KEY" ]; then
-        echo "✓ API Key generated successfully"
-        echo ""
-        echo "========================================="
-        echo "API Key: ${API_KEY}"
-        echo "========================================="
-        echo ""
-        echo "⚠ IMPORTANT: Save this API key now. It will not be shown again."
-        echo ""
-        echo "To add it to Jenkins:"
-        echo "  1. Go to Jenkins → Manage Jenkins → Credentials"
-        echo "  2. Add new credential with ID: GRAFANA_API_KEY"
-        echo "  3. Type: Secret text"
-        echo "  4. Secret: ${API_KEY}"
-        echo ""
-        
-        # Si se ejecuta desde Jenkins, intentar guardarlo automáticamente
-        if [ -n "$JENKINS_HOME" ] && [ -n "$WORKSPACE" ]; then
-            echo "Detected Jenkins environment. Saving API key to file..."
-            echo "$API_KEY" > "${WORKSPACE}/.grafana-api-key" || true
-            echo "✓ API key saved to ${WORKSPACE}/.grafana-api-key"
+        # Guardar la API key en un archivo primero (para Jenkins)
+        if [ -n "$WORKSPACE" ]; then
+            echo "$API_KEY" > "${WORKSPACE}/.grafana-api-key" 2>/dev/null || true
         fi
+        
+        # Imprimir mensajes informativos a stderr (para que no interfieran con la extracción)
+        echo "✓ API Key generated successfully" >&2
+        echo "" >&2
+        echo "=========================================" >&2
+        echo "API Key: ${API_KEY}" >&2
+        echo "=========================================" >&2
+        echo "" >&2
+        
+        # Imprimir SOLO la API key a stdout (para que Jenkins pueda capturarla)
+        echo "$API_KEY"
         
         exit 0
     else
