@@ -14,36 +14,37 @@ if [ -z "$RESOURCE_GROUP" ] || [ -z "$GRAFANA_NAME" ]; then
     exit 1
 fi
 
-echo "========================================="
-echo "Generating Grafana API Key"
-echo "========================================="
-echo "Resource Group: ${RESOURCE_GROUP}"
-echo "Grafana Name: ${GRAFANA_NAME}"
-echo "Key Name: ${KEY_NAME}"
-echo "========================================="
+# Todos los mensajes informativos van a stderr
+echo "=========================================" >&2
+echo "Generating Grafana API Key" >&2
+echo "=========================================" >&2
+echo "Resource Group: ${RESOURCE_GROUP}" >&2
+echo "Grafana Name: ${GRAFANA_NAME}" >&2
+echo "Key Name: ${KEY_NAME}" >&2
+echo "=========================================" >&2
 
 # Verificar que Grafana existe
 if ! az grafana show --name "$GRAFANA_NAME" --resource-group "$RESOURCE_GROUP" &>/dev/null; then
-    echo "Error: Grafana '${GRAFANA_NAME}' not found in resource group '${RESOURCE_GROUP}'"
+    echo "Error: Grafana '${GRAFANA_NAME}' not found in resource group '${RESOURCE_GROUP}'" >&2
     exit 1
 fi
 
 # Eliminar API key existente si existe (para evitar duplicados)
-echo ""
-echo "Checking for existing API key '${KEY_NAME}'..."
+echo "" >&2
+echo "Checking for existing API key '${KEY_NAME}'..." >&2
 if az grafana api-key list --name "$GRAFANA_NAME" --resource-group "$RESOURCE_GROUP" --query "[?name=='${KEY_NAME}'].name" -o tsv 2>/dev/null | grep -q "^${KEY_NAME}$"; then
-    echo "  Found existing API key '${KEY_NAME}', deleting it..."
+    echo "  Found existing API key '${KEY_NAME}', deleting it..." >&2
     az grafana api-key delete \
         --name "$GRAFANA_NAME" \
         --resource-group "$RESOURCE_GROUP" \
         --key "$KEY_NAME" \
         --yes 2>/dev/null || true
-    echo "  ✓ Old API key deleted"
+    echo "  ✓ Old API key deleted" >&2
 fi
 
 # Generar nueva API key
-echo ""
-echo "Generating new API key '${KEY_NAME}'..."
+echo "" >&2
+echo "Generating new API key '${KEY_NAME}'..." >&2
 API_KEY_RESPONSE=$(az grafana api-key create \
     --name "$GRAFANA_NAME" \
     --resource-group "$RESOURCE_GROUP" \
@@ -80,13 +81,13 @@ if [ $? -eq 0 ]; then
         
         exit 0
     else
-        echo "Error: Could not extract API key from response"
-        echo "Response: ${API_KEY_RESPONSE}"
+        echo "Error: Could not extract API key from response" >&2
+        echo "Response: ${API_KEY_RESPONSE}" >&2
         exit 1
     fi
 else
-    echo "Error: Failed to generate API key"
-    echo "Response: ${API_KEY_RESPONSE}"
+    echo "Error: Failed to generate API key" >&2
+    echo "Response: ${API_KEY_RESPONSE}" >&2
     exit 1
 fi
 

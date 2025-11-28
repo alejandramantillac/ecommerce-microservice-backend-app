@@ -922,57 +922,65 @@ def generateGrafanaApiKey(resourceGroup, grafanaName, keyName = 'jenkins-migrati
     echo "Key Name: ${keyName}"
     echo "========================================="
     
-    // Ejecutar el script - la API key se imprime en stdout, mensajes en stderr
-    def apiKey = sh(
+    // Ejecutar el script - la API key se imprime SOLO en stdout
+    // Los mensajes informativos van a stderr (redirigidos a /dev/null para no interferir)
+    def apiKeyRaw = sh(
         script: """
             chmod +x jenkins/scripts/generate-grafana-api-key.sh || true
-            jenkins/scripts/generate-grafana-api-key.sh "${resourceGroup}" "${grafanaName}" "${keyName}" 2>/dev/null | tail -1
+            jenkins/scripts/generate-grafana-api-key.sh "${resourceGroup}" "${grafanaName}" "${keyName}" 2>/dev/null | grep -E '^[A-Za-z0-9_-]{20,}$' | head -1
         """,
         returnStdout: true
     ).trim()
     
-    // Si no se obtuvo de stdout, intentar leer del archivo .grafana-api-key
-    if (!apiKey || apiKey.isEmpty() || apiKey.length() < 10) {
+    // Si no se obtuvo, intentar leer del archivo .grafana-api-key
+    if (!apiKeyRaw || apiKeyRaw.isEmpty() || apiKeyRaw.length() < 20) {
         if (fileExists('.grafana-api-key')) {
-            apiKey = readFile('.grafana-api-key').trim()
+            apiKeyRaw = readFile('.grafana-api-key').trim()
         }
     }
     
-    // Si aún no se tiene, ejecutar de nuevo y buscar en stderr también
-    if (!apiKey || apiKey.isEmpty() || apiKey.length() < 10) {
+    // Si aún no se tiene, ejecutar de nuevo y extraer de cualquier formato
+    if (!apiKeyRaw || apiKeyRaw.isEmpty() || apiKeyRaw.length() < 20) {
         def fullOutput = sh(
             script: """
                 jenkins/scripts/generate-grafana-api-key.sh "${resourceGroup}" "${grafanaName}" "${keyName}" 2>&1 || true
             """,
             returnStdout: true
-        ).trim()
+        )
         
-        // Buscar la línea con "API Key: " y extraer el valor
+        // Buscar líneas que parezcan API keys (formato Grafana: alfanumérico, guiones, guiones bajos, 20+ caracteres)
         fullOutput.eachLine { line ->
-            if (line.contains('API Key:') && !line.contains('⚠') && !line.contains('Error') && !line.contains('IMPORTANT')) {
-                def match = line =~ /API Key:\s*(.+)/
-                if (match) {
-                    apiKey = match[0][1].trim()
-                }
+            def trimmed = line.trim()
+            // Las API keys de Grafana Azure suelen ser strings alfanuméricos largos
+            if (trimmed.matches(/^[A-Za-z0-9_-]{20,}$/) && !trimmed.contains(' ') && !trimmed.contains('API') && !trimmed.contains('Key')) {
+                apiKeyRaw = trimmed
             }
         }
         
-        // Si aún no se encontró, buscar cualquier línea que parezca una API key (formato típico)
-        if (!apiKey || apiKey.isEmpty() || apiKey.length() < 10) {
+        // Si aún no se encontró, buscar después de "API Key:"
+        if (!apiKeyRaw || apiKeyRaw.isEmpty() || apiKeyRaw.length() < 20) {
             fullOutput.eachLine { line ->
-                // Las API keys de Grafana suelen tener un formato específico
-                if (line.matches(/^[A-Za-z0-9_-]{20,}$/)) {
-                    apiKey = line.trim()
+                if (line.contains('API Key:') && !line.contains('⚠') && !line.contains('Error')) {
+                    def match = line =~ /API Key:\s*([A-Za-z0-9_-]{20,})/
+                    if (match) {
+                        apiKeyRaw = match[0][1].trim()
+                    }
                 }
             }
         }
     }
     
-    if (apiKey && apiKey.length() > 10) {
-        echo "✓ Grafana API Key generated successfully"
+    def apiKey = apiKeyRaw
+    
+    // Validar que la API key tenga el formato correcto (Grafana API keys suelen ser 20+ caracteres)
+    if (apiKey && apiKey.length() >= 20 && apiKey.matches(/^[A-Za-z0-9_-]+$/)) {
+        echo "✓ Grafana API Key generated successfully (length: ${apiKey.length()})"
         return apiKey
     } else {
-        echo "⚠ Warning: Could not extract API key from output"
+        echo "⚠ Warning: Could not extract valid API key from output"
+        if (apiKey) {
+            echo "Extracted value (may be invalid): ${apiKey.take(10)}... (length: ${apiKey.length()})"
+        }
         echo "Attempted to generate API key but extraction failed"
         return null
     }
@@ -992,6 +1000,19 @@ def migrateGrafanaDashboards(grafanaEndpoint, grafanaApiKey, prometheusQueryEndp
     echo "Grafana Endpoint: ${grafanaEndpoint}"
     echo "Dashboards Directory: ${dashboardsDir}"
     echo "========================================="
+    
+    // Validar que la API key tenga el formato correcto
+    if (!grafanaApiKey || grafanaApiKey.isEmpty() || grafanaApiKey.length() < 20) {
+        error("ERROR: Invalid Grafana API key provided. Key length: ${grafanaApiKey?.length() ?: 0}. Expected 20+ characters.")
+    }
+    
+    // Verificar que no contenga texto de error
+    if (grafanaApiKey.contains('Generating') || grafanaApiKey.contains('API key') || grafanaApiKey.contains('Error')) {
+        error("ERROR: API key appears to contain error text instead of the actual key: ${grafanaApiKey.take(50)}...")
+    }
+    
+    echo "API Key length: ${grafanaApiKey.length()} characters"
+    echo "API Key preview: ${grafanaApiKey.take(10)}..."
     
     sh """
         chmod +x jenkins/scripts/migrate-grafana-dashboards.sh

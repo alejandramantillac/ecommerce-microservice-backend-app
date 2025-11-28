@@ -89,24 +89,28 @@ export AZURE_CLIENT_SECRET
 # Function to substitute variables
 substitute_vars() {
     local file="$1"
-    if [ "$USE_ENVSUBST" = true ]; then
+    
+    # Preferir envsubst si está disponible (más confiable para URLs)
+    if command -v envsubst &> /dev/null; then
+        # Exportar variables para envsubst (necesita nombres sin AZURE_ prefix para el template)
+        export AZURE_PROMETHEUS_INGESTION_ENDPOINT="$AZURE_INGESTION_ENDPOINT"
         envsubst < "$file"
     else
-        # Escapar caracteres especiales para sed usando | como delimitador
-        # Para URLs, necesitamos escapar : / y otros caracteres especiales
-        local escaped_endpoint=$(echo "$AZURE_INGESTION_ENDPOINT" | sed 's/[[\.*^$()+?{|:]/\\&/g' | sed 's|/|\\/|g')
-        local escaped_client_id=$(echo "$AZURE_CLIENT_ID" | sed 's/[[\.*^$()+?{|]/\\&/g')
-        local escaped_tenant_id=$(echo "$AZURE_TENANT_ID" | sed 's/[[\.*^$()+?{|]/\\&/g')
-        local escaped_client_secret=$(echo "$AZURE_CLIENT_SECRET" | sed 's/[[\.*^$()+?{|]/\\&/g')
-        
-        # Usar | como delimitador para evitar problemas con / en URLs
-        sed -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
-            -e "s|\${ENVIRONMENT}|${ENVIRONMENT}|g" \
-            -e "s|\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}|${escaped_endpoint}|g" \
-            -e "s|\${AZURE_CLIENT_ID}|${escaped_client_id}|g" \
-            -e "s|\${AZURE_TENANT_ID}|${escaped_tenant_id}|g" \
-            -e "s|\${AZURE_CLIENT_SECRET}|${escaped_client_secret}|g" \
-            "$file"
+        # Fallback a sed con mejor manejo de URLs
+        # Usar perl para reemplazo más robusto si está disponible
+        if command -v perl &> /dev/null; then
+            perl -pe "s|\\\$\{NAMESPACE\}|${NAMESPACE}|g; s|\\\$\{ENVIRONMENT\}|${ENVIRONMENT}|g; s|\\\$\{AZURE_PROMETHEUS_INGESTION_ENDPOINT\}|${AZURE_INGESTION_ENDPOINT}|g; s|\\\$\{AZURE_CLIENT_ID\}|${AZURE_CLIENT_ID}|g; s|\\\$\{AZURE_TENANT_ID\}|${AZURE_TENANT_ID}|g; s|\\\$\{AZURE_CLIENT_SECRET\}|${AZURE_CLIENT_SECRET}|g" "$file"
+        else
+            # Usar sed con escape mínimo (solo para caracteres realmente problemáticos)
+            # No escapar / ya que usamos | como delimitador
+            sed -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
+                -e "s|\${ENVIRONMENT}|${ENVIRONMENT}|g" \
+                -e "s|\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}|${AZURE_INGESTION_ENDPOINT}|g" \
+                -e "s|\${AZURE_CLIENT_ID}|${AZURE_CLIENT_ID}|g" \
+                -e "s|\${AZURE_TENANT_ID}|${AZURE_TENANT_ID}|g" \
+                -e "s|\${AZURE_CLIENT_SECRET}|${AZURE_CLIENT_SECRET}|g" \
+                "$file"
+        fi
     fi
 }
 

@@ -282,11 +282,19 @@ pipeline {
                             }
                             
                             grafanaApiKey = commonFunctions.generateGrafanaApiKey(resourceGroup, grafanaName, 'jenkins-migration')
+                            
+                            // Debug: verificar que la API key sea válida
+                            if (grafanaApiKey) {
+                                echo "Debug: API key obtained, length: ${grafanaApiKey.length()}"
+                                echo "Debug: API key preview: ${grafanaApiKey.take(10)}..."
+                            } else {
+                                echo "Debug: API key is null or empty"
+                            }
                         }
                     }
                     
                     // Migrar dashboards si tenemos API key
-                    if (grafanaApiKey) {
+                    if (grafanaApiKey && grafanaApiKey.length() >= 20) {
                         echo "Migrating Grafana dashboards to Azure Managed Grafana..."
                         commonFunctions.migrateGrafanaDashboards(
                             monitoringOutputs.grafanaEndpoint,
@@ -295,7 +303,10 @@ pipeline {
                             'k8s/monitoring/grafana-dashboards'
                         )
                     } else {
-                        echo "⚠ Warning: Could not obtain Grafana API key. Skipping dashboard migration."
+                        echo "⚠ Warning: Could not obtain valid Grafana API key. Skipping dashboard migration."
+                        if (grafanaApiKey) {
+                            echo "API key value (invalid): ${grafanaApiKey.take(50)}..."
+                        }
                         echo "You can manually migrate dashboards later or configure the GRAFANA_API_KEY credential in Jenkins"
                     }
                 }
