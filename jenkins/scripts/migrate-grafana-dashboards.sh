@@ -2,17 +2,20 @@
 # Script para migrar dashboards de Grafana local a Azure Managed Grafana
 # Usage: ./jenkins/scripts/migrate-grafana-dashboards.sh <grafana-endpoint> <grafana-api-key> <dashboards-dir>
 
-set -e
-
 GRAFANA_ENDPOINT="${1}"
 GRAFANA_API_KEY="${2}"
 DASHBOARDS_DIR="${3:-k8s/monitoring/grafana-dashboards}"
 
+# Validaciones críticas - deben fallar si no se cumplen
 if [ -z "$GRAFANA_ENDPOINT" ] || [ -z "$GRAFANA_API_KEY" ]; then
     echo "Usage: $0 <grafana-endpoint> <grafana-api-key> [dashboards-dir]"
     echo "Example: $0 https://grafana-xxx.eastus.grafana.azure.com api-key k8s/monitoring/grafana-dashboards"
     exit 1
 fi
+
+# No usar set -e para permitir que el script continúe aunque algunos dashboards fallen
+# Las funciones manejan sus propios errores y retornan códigos de salida apropiados
+set +e
 
 echo "========================================="
 echo "Migrating Grafana Dashboards"
