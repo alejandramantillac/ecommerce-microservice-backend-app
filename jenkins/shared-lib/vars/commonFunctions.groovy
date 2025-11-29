@@ -284,21 +284,20 @@ def getMonitoringOutputs(envNamespace) {
                 realQueryEndpoint = azureQueryEndpoint
             }
             
-            // For ingestion, Azure Monitor Workspace uses metrics.ingest.monitor.azure.com
-            // If ingestion endpoint is not available, construct it from query endpoint
+            // For ingestion, Azure Monitor Workspace uses the SAME endpoint as query
+            // There is NO separate .metrics.ingest.monitor.azure.com domain
+            // The query endpoint is used for both querying and ingestion
             if (azureIngestionEndpoint && azureIngestionEndpoint.length() > 0 && azureIngestionEndpoint.startsWith('https://')) {
                 echo "✓ Found real Prometheus ingestion endpoint: ${azureIngestionEndpoint}"
                 realIngestionEndpoint = azureIngestionEndpoint
             } else if (azureQueryEndpoint && azureQueryEndpoint.length() > 0) {
-                // Construct ingestion endpoint from query endpoint
-                // Replace .prometheus.monitor.azure.com with .metrics.ingest.monitor.azure.com
-                def ingestionEndpoint = azureQueryEndpoint.replace('.prometheus.monitor.azure.com', '.metrics.ingest.monitor.azure.com')
-                echo "✓ Constructed ingestion endpoint from query endpoint: ${ingestionEndpoint}"
-                realIngestionEndpoint = ingestionEndpoint
+                // Use the SAME endpoint for ingestion (Azure Monitor Workspace doesn't have separate ingestion domain)
+                realIngestionEndpoint = azureQueryEndpoint
+                echo "✓ Using query endpoint for ingestion (same endpoint): ${realIngestionEndpoint}"
             } else {
                 echo "⚠ Could not get endpoint from Azure CLI (empty or invalid response), using Terraform output"
-                if (azureEndpoint) {
-                    echo "  Azure CLI returned: ${azureEndpoint}"
+                if (azureQueryEndpoint) {
+                    echo "  Azure CLI returned query endpoint: ${azureQueryEndpoint}"
                 }
             }
         } catch (Exception e) {

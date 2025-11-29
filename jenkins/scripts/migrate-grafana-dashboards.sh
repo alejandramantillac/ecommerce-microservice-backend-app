@@ -214,7 +214,8 @@ configure_datasource() {
   "jsonData": {
     "timeInterval": "30s",
     "httpMethod": "POST"
-  }
+  },
+  "authType": "azure_ad"
 }
 EOF
 )
