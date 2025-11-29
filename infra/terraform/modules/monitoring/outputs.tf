@@ -10,22 +10,20 @@ output "prometheus_workspace_name" {
 
 output "prometheus_ingestion_endpoint" {
   description = "Endpoint de ingesta de Prometheus"
-  # Obtener el endpoint real desde Azure (incluye el sufijo aleatorio que Azure agrega)
-  # Si el data source no está disponible, usar el formato construido como fallback
-  value = try(
-    data.azurerm_monitor_workspace.prometheus_endpoint.metrics[0].prometheus_query_endpoint,
-    "https://${azurerm_monitor_workspace.prometheus.name}.${replace(lower(azurerm_monitor_workspace.prometheus.location), " ", "")}.prometheus.monitor.azure.com"
-  )
+  # Nota: El endpoint real incluye un sufijo aleatorio que Azure agrega
+  # El script de Jenkins obtendrá el endpoint real desde Azure CLI usando:
+  # az monitor account show --name <workspace-name> --resource-group <rg> --query "metrics.prometheusQueryEndpoint"
+  # Este output es solo un placeholder - el endpoint real se obtiene en el pipeline
+  value = "https://${azurerm_monitor_workspace.prometheus.name}.${replace(lower(azurerm_monitor_workspace.prometheus.location), " ", "")}.prometheus.monitor.azure.com"
 }
 
 output "prometheus_query_endpoint" {
   description = "Endpoint de consulta de Prometheus"
-  # Obtener el endpoint real desde Azure (incluye el sufijo aleatorio que Azure agrega)
-  # Si el data source no está disponible, usar el formato construido como fallback
-  value = try(
-    data.azurerm_monitor_workspace.prometheus_endpoint.metrics[0].prometheus_query_endpoint,
-    "https://${azurerm_monitor_workspace.prometheus.name}.${replace(lower(azurerm_monitor_workspace.prometheus.location), " ", "")}.prometheus.monitor.azure.com"
-  )
+  # Nota: El endpoint real incluye un sufijo aleatorio que Azure agrega
+  # El script de Jenkins obtendrá el endpoint real desde Azure CLI usando:
+  # az monitor account show --name <workspace-name> --resource-group <rg> --query "metrics.prometheusQueryEndpoint"
+  # Este output es solo un placeholder - el endpoint real se obtiene en el pipeline
+  value = "https://${azurerm_monitor_workspace.prometheus.name}.${replace(lower(azurerm_monitor_workspace.prometheus.location), " ", "")}.prometheus.monitor.azure.com"
 }
 
 output "grafana_id" {
