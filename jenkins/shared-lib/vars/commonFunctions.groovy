@@ -255,7 +255,8 @@ def getMonitoringOutputs(envNamespace) {
             echo "  Workspace: ${prometheusWsName}"
             echo "  Resource Group: ${resourceGroupName}"
             
-            def azureEndpoint = sh(
+            // Get query endpoint
+            def azureQueryEndpoint = sh(
                 script: """
                     az monitor account show \
                         --name "${prometheusWsName}" \
@@ -266,10 +267,34 @@ def getMonitoringOutputs(envNamespace) {
                 returnStdout: true
             ).trim()
             
-            if (azureEndpoint && azureEndpoint.length() > 0 && azureEndpoint.startsWith('https://')) {
-                echo "✓ Found real Prometheus endpoint: ${azureEndpoint}"
-                realQueryEndpoint = azureEndpoint
-                realIngestionEndpoint = azureEndpoint  // Same endpoint for both query and ingestion
+            // Get ingestion endpoint (may be different)
+            def azureIngestionEndpoint = sh(
+                script: """
+                    az monitor account show \
+                        --name "${prometheusWsName}" \
+                        --resource-group "${resourceGroupName}" \
+                        --query "metrics.prometheusIngestionEndpoint" \
+                        -o tsv 2>/dev/null || echo ""
+                """,
+                returnStdout: true
+            ).trim()
+            
+            if (azureQueryEndpoint && azureQueryEndpoint.length() > 0 && azureQueryEndpoint.startsWith('https://')) {
+                echo "✓ Found real Prometheus query endpoint: ${azureQueryEndpoint}"
+                realQueryEndpoint = azureQueryEndpoint
+            }
+            
+            // For ingestion, Azure Monitor Workspace uses metrics.ingest.monitor.azure.com
+            // If ingestion endpoint is not available, construct it from query endpoint
+            if (azureIngestionEndpoint && azureIngestionEndpoint.length() > 0 && azureIngestionEndpoint.startsWith('https://')) {
+                echo "✓ Found real Prometheus ingestion endpoint: ${azureIngestionEndpoint}"
+                realIngestionEndpoint = azureIngestionEndpoint
+            } else if (azureQueryEndpoint && azureQueryEndpoint.length() > 0) {
+                // Construct ingestion endpoint from query endpoint
+                // Replace .prometheus.monitor.azure.com with .metrics.ingest.monitor.azure.com
+                def ingestionEndpoint = azureQueryEndpoint.replace('.prometheus.monitor.azure.com', '.metrics.ingest.monitor.azure.com')
+                echo "✓ Constructed ingestion endpoint from query endpoint: ${ingestionEndpoint}"
+                realIngestionEndpoint = ingestionEndpoint
             } else {
                 echo "⚠ Could not get endpoint from Azure CLI (empty or invalid response), using Terraform output"
                 if (azureEndpoint) {
