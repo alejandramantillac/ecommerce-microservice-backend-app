@@ -10,16 +10,22 @@ output "prometheus_workspace_name" {
 
 output "prometheus_ingestion_endpoint" {
   description = "Endpoint de ingesta de Prometheus"
-  # Construir el endpoint usando el nombre del workspace y la región
-  # Formato para Azure Monitor Workspace con Prometheus: https://{workspace-name}.{region}.prometheus.monitor.azure.com
-  value = "https://${azurerm_monitor_workspace.prometheus.name}.${replace(lower(azurerm_monitor_workspace.prometheus.location), " ", "")}.prometheus.monitor.azure.com"
+  # Obtener el endpoint real desde Azure (incluye el sufijo aleatorio que Azure agrega)
+  # Si el data source no está disponible, usar el formato construido como fallback
+  value = try(
+    data.azurerm_monitor_workspace.prometheus_endpoint.metrics[0].prometheus_query_endpoint,
+    "https://${azurerm_monitor_workspace.prometheus.name}.${replace(lower(azurerm_monitor_workspace.prometheus.location), " ", "")}.prometheus.monitor.azure.com"
+  )
 }
 
 output "prometheus_query_endpoint" {
   description = "Endpoint de consulta de Prometheus"
-  # Construir el endpoint usando el nombre del workspace y la región
-  # Formato para Azure Monitor Workspace con Prometheus: https://{workspace-name}.{region}.prometheus.monitor.azure.com
-  value = "https://${azurerm_monitor_workspace.prometheus.name}.${replace(lower(azurerm_monitor_workspace.prometheus.location), " ", "")}.prometheus.monitor.azure.com"
+  # Obtener el endpoint real desde Azure (incluye el sufijo aleatorio que Azure agrega)
+  # Si el data source no está disponible, usar el formato construido como fallback
+  value = try(
+    data.azurerm_monitor_workspace.prometheus_endpoint.metrics[0].prometheus_query_endpoint,
+    "https://${azurerm_monitor_workspace.prometheus.name}.${replace(lower(azurerm_monitor_workspace.prometheus.location), " ", "")}.prometheus.monitor.azure.com"
+  )
 }
 
 output "grafana_id" {

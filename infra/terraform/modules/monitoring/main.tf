@@ -29,6 +29,17 @@ resource "azurerm_monitor_workspace" "prometheus" {
   tags                = var.tags
 }
 
+# Data source para obtener el endpoint real de Prometheus (incluye el sufijo aleatorio)
+# Azure agrega un sufijo aleatorio al nombre del workspace en el endpoint
+# Nota: Si el provider no expone metrics.prometheus_query_endpoint, el script de Jenkins
+# obtendrá el endpoint real desde Azure CLI como fallback
+data "azurerm_monitor_workspace" "prometheus_endpoint" {
+  name                = azurerm_monitor_workspace.prometheus.name
+  resource_group_name = var.resource_group_name
+  
+  depends_on = [azurerm_monitor_workspace.prometheus]
+}
+
 # Azure Managed Grafana
 # IMPORTANTE: Hay una incompatibilidad: Azure requiere v11 pero el provider solo acepta v9/v10
 # Solución: Crear Grafana con Azure CLI primero (ver jenkins/scripts/setup-grafana-manual.sh)

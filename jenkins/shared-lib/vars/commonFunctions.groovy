@@ -210,9 +210,45 @@ def getTerraformOutput(envNamespace, outputName) {
  * @return Map with monitoring outputs
  */
 def getMonitoringOutputs(envNamespace) {
+    // Obtener outputs básicos de Terraform
+    def prometheusWsName = getTerraformOutput(envNamespace, 'prometheus_workspace_name')
+    def resourceGroupName = getTerraformOutput(envNamespace, 'resource_group_name')
+    def terraformQueryEndpoint = getTerraformOutput(envNamespace, 'prometheus_query_endpoint')
+    def terraformIngestionEndpoint = getTerraformOutput(envNamespace, 'prometheus_ingestion_endpoint')
+    
+    // Obtener el endpoint real desde Azure CLI (incluye el sufijo aleatorio)
+    // Azure agrega un sufijo aleatorio al nombre del workspace en el endpoint
+    def realQueryEndpoint = terraformQueryEndpoint
+    def realIngestionEndpoint = terraformIngestionEndpoint
+    
+    try {
+        echo "Obtaining real Prometheus endpoint from Azure (includes random suffix)..."
+        def azureEndpoint = sh(
+            script: """
+                az monitor account show \
+                    --name "${prometheusWsName}" \
+                    --resource-group "${resourceGroupName}" \
+                    --query "metrics.prometheusQueryEndpoint" \
+                    -o tsv 2>/dev/null || echo ""
+            """,
+            returnStdout: true
+        ).trim()
+        
+        if (azureEndpoint && azureEndpoint.length() > 0) {
+            echo "✓ Found real Prometheus endpoint: ${azureEndpoint}"
+            realQueryEndpoint = azureEndpoint
+            realIngestionEndpoint = azureEndpoint  // Same endpoint for both query and ingestion
+        } else {
+            echo "⚠ Could not get endpoint from Azure CLI, using Terraform output"
+        }
+    } catch (Exception e) {
+        echo "⚠ Error getting endpoint from Azure CLI: ${e.getMessage()}"
+        echo "  Using Terraform output as fallback"
+    }
+    
     return [
-        prometheusIngestionEndpoint: getTerraformOutput(envNamespace, 'prometheus_ingestion_endpoint'),
-        prometheusQueryEndpoint: getTerraformOutput(envNamespace, 'prometheus_query_endpoint'),
+        prometheusIngestionEndpoint: realIngestionEndpoint,
+        prometheusQueryEndpoint: realQueryEndpoint,
         grafanaEndpoint: getTerraformOutput(envNamespace, 'grafana_endpoint'),
         grafanaName: getTerraformOutput(envNamespace, 'grafana_name')
     ]
