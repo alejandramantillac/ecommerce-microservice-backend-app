@@ -188,88 +188,91 @@ configure_datasource() {
     echo ""
     echo "Configuring Prometheus datasource..."
     
-    # Get Prometheus query endpoint from environment or parameter
     local prometheus_query_endpoint="${AZURE_PROMETHEUS_QUERY_ENDPOINT}"
     
     if [ -z "$prometheus_query_endpoint" ]; then
         echo "  ⚠ Warning: AZURE_PROMETHEUS_QUERY_ENDPOINT not set. Skipping datasource configuration."
-        echo "    You may need to configure the Prometheus datasource manually in Grafana."
         return 1
     fi
     
-    # For Azure Managed Grafana with Azure Monitor Workspace integration,
-    # use standard Prometheus datasource
-    # Azure Managed Identity handles authentication automatically
-    # Note: The URL must be accessible from Grafana's network
-    echo "  Configuring Prometheus datasource with URL: ${prometheus_query_endpoint}"
-    
-    local datasource_payload=$(cat <<EOF
-{
-  "name": "Prometheus",
-  "type": "prometheus",
-  "access": "proxy",
-  "url": "${prometheus_query_endpoint}",
-  "isDefault": true,
-  "jsonData": {
-    "timeInterval": "30s",
-    "httpMethod": "POST"
-  }
-}
-EOF
-)
-    
-    # Check if datasource already exists
+    # Check if datasource exists
     local existing_ds=$(curl -s \
         -H "Authorization: Bearer ${GRAFANA_API_KEY}" \
-        "${GRAFANA_ENDPOINT}/api/datasources/name/Prometheus" || echo "")
+        "${GRAFANA_ENDPOINT}/api/datasources/name/Prometheus" 2>/dev/null || echo "")
     
     if [ -n "$existing_ds" ] && [ "$(echo "$existing_ds" | jq -r '.id // empty' 2>/dev/null)" != "" ]; then
         local ds_id=$(echo "$existing_ds" | jq -r '.id')
-        echo "  Updating existing Prometheus datasource (ID: ${ds_id})..."
+        local ds_type=$(echo "$existing_ds" | jq -r '.type // empty' 2>/dev/null)
+        local ds_json_data=$(echo "$existing_ds" | jq -r '.jsonData // {}' 2>/dev/null)
+        local has_azure_auth=$(echo "$ds_json_data" | jq -r '.azureAuthType // empty' 2>/dev/null)
         
-        local response=$(curl -s -w "\n%{http_code}" \
-            -X PUT \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${GRAFANA_API_KEY}" \
-            "${GRAFANA_ENDPOINT}/api/datasources/${ds_id}" \
-            -d "$datasource_payload")
-        
-        local http_code=$(echo "$response" | tail -n1)
-        local body=$(echo "$response" | sed '$d')
-        if [ "$http_code" -eq 200 ]; then
-            echo "  ✓ Datasource updated successfully"
-            return 0
+        # If it's a standard prometheus datasource without Azure AD auth, delete it
+        # Azure will recreate it automatically with proper authentication via integration
+        if [ "$ds_type" = "prometheus" ] && [ -z "$has_azure_auth" ]; then
+            echo "  Removing datasource without Azure AD authentication (ID: ${ds_id})..."
+            local delete_response=$(curl -s -w "\n%{http_code}" \
+                -X DELETE \
+                -H "Authorization: Bearer ${GRAFANA_API_KEY}" \
+                "${GRAFANA_ENDPOINT}/api/datasources/${ds_id}" 2>/dev/null || echo "")
+            
+            local delete_http_code=$(echo "$delete_response" | tail -n1)
+            if [ "$delete_http_code" = "200" ]; then
+                echo "  ✓ Datasource removed. Waiting for Azure to recreate it automatically..."
+                
+                # Wait up to 2 minutes for Azure to recreate
+                local wait_count=0
+                local max_wait=24
+                
+                while [ $wait_count -lt $max_wait ]; do
+                    sleep 5
+                    local new_ds=$(curl -s \
+                        -H "Authorization: Bearer ${GRAFANA_API_KEY}" \
+                        "${GRAFANA_ENDPOINT}/api/datasources/name/Prometheus" 2>/dev/null || echo "")
+                    
+                    if [ -n "$new_ds" ] && [ "$(echo "$new_ds" | jq -r '.id // empty' 2>/dev/null)" != "" ]; then
+                        local new_ds_json_data=$(echo "$new_ds" | jq -r '.jsonData // {}' 2>/dev/null)
+                        local new_has_azure_auth=$(echo "$new_ds_json_data" | jq -r '.azureAuthType // empty' 2>/dev/null)
+                        
+                        if [ -n "$new_has_azure_auth" ]; then
+                            echo "  ✓ Azure recreated datasource with Azure AD authentication"
+                            return 0
+                        fi
+                    fi
+                    wait_count=$((wait_count + 1))
+                done
+                
+                echo "  ⚠ Azure did not recreate datasource automatically within timeout"
+                return 1
+            else
+                echo "  ✗ Failed to remove datasource (HTTP ${delete_http_code})"
+                return 1
+            fi
         else
-            echo "  ✗ Failed to update datasource (HTTP ${http_code})"
-            echo "    Response: ${body}"
-            return 1
+            echo "  ✓ Datasource exists with proper Azure AD authentication"
+            return 0
         fi
     else
-        echo "  Creating new Prometheus datasource..."
+        # Datasource doesn't exist - Azure should create it automatically
+        echo "  Datasource not found. Waiting for Azure to create it automatically..."
         
-        local response=$(curl -s -w "\n%{http_code}" \
-            -X POST \
-            -H "Content-Type: application/json" \
-            -H "Authorization: Bearer ${GRAFANA_API_KEY}" \
-            "${GRAFANA_ENDPOINT}/api/datasources" \
-            -d "$datasource_payload")
+        local wait_count=0
+        local max_wait=24
         
-        local http_code=$(echo "$response" | tail -n1)
-        local body=$(echo "$response" | sed '$d')
-        if [ "$http_code" -eq 200 ] || [ "$http_code" -eq 201 ]; then
-            echo "  ✓ Datasource created successfully"
-            return 0
-        else
-            echo "  ✗ Failed to create datasource (HTTP ${http_code})"
-            echo "    Response: ${body}"
-            echo ""
-            echo "  ⚠ Note: If you see 'no such host' errors in dashboards, this may indicate:"
-            echo "    1. The Prometheus endpoint URL is not accessible from Grafana's network"
-            echo "    2. DNS resolution issues in Grafana"
-            echo "    3. The datasource may need to be configured manually in Grafana UI"
-            echo "       with Azure AD authentication"
-            return 1
-        fi
+        while [ $wait_count -lt $max_wait ]; do
+            sleep 5
+            local new_ds=$(curl -s \
+                -H "Authorization: Bearer ${GRAFANA_API_KEY}" \
+                "${GRAFANA_ENDPOINT}/api/datasources/name/Prometheus" 2>/dev/null || echo "")
+            
+            if [ -n "$new_ds" ] && [ "$(echo "$new_ds" | jq -r '.id // empty' 2>/dev/null)" != "" ]; then
+                echo "  ✓ Datasource created automatically by Azure"
+                return 0
+            fi
+            wait_count=$((wait_count + 1))
+        done
+        
+        echo "  ⚠ Datasource was not created automatically within timeout"
+        return 1
     fi
 }
 
