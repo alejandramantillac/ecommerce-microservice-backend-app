@@ -197,6 +197,12 @@ configure_datasource() {
         return 1
     fi
     
+    # For Azure Managed Grafana with Azure Monitor Workspace integration,
+    # use standard Prometheus datasource
+    # Azure Managed Identity handles authentication automatically
+    # Note: The URL must be accessible from Grafana's network
+    echo "  Configuring Prometheus datasource with URL: ${prometheus_query_endpoint}"
+    
     local datasource_payload=$(cat <<EOF
 {
   "name": "Prometheus",
@@ -229,11 +235,13 @@ EOF
             -d "$datasource_payload")
         
         local http_code=$(echo "$response" | tail -n1)
+        local body=$(echo "$response" | sed '$d')
         if [ "$http_code" -eq 200 ]; then
             echo "  ✓ Datasource updated successfully"
             return 0
         else
             echo "  ✗ Failed to update datasource (HTTP ${http_code})"
+            echo "    Response: ${body}"
             return 1
         fi
     else
@@ -247,11 +255,19 @@ EOF
             -d "$datasource_payload")
         
         local http_code=$(echo "$response" | tail -n1)
+        local body=$(echo "$response" | sed '$d')
         if [ "$http_code" -eq 200 ] || [ "$http_code" -eq 201 ]; then
             echo "  ✓ Datasource created successfully"
             return 0
         else
             echo "  ✗ Failed to create datasource (HTTP ${http_code})"
+            echo "    Response: ${body}"
+            echo ""
+            echo "  ⚠ Note: If you see 'no such host' errors in dashboards, this may indicate:"
+            echo "    1. The Prometheus endpoint URL is not accessible from Grafana's network"
+            echo "    2. DNS resolution issues in Grafana"
+            echo "    3. The datasource may need to be configured manually in Grafana UI"
+            echo "       with Azure AD authentication"
             return 1
         fi
     fi
