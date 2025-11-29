@@ -907,107 +907,91 @@ def deployPrometheusAgent(namespace, environment, azureIngestionEndpoint, azureC
 }
 
 /**
- * Generate Grafana API Key automatically
- * @param resourceGroup Azure resource group name
- * @param grafanaName Grafana instance name
- * @param keyName API key name (default: jenkins-migration)
- * @return The generated API key, or null if generation failed
+ * Get Grafana API Key from Jenkins credentials
+ * Waits up to 10 minutes if credential is not found
+ * @param namespace Kubernetes namespace (staging/prod)
+ * @param grafanaName Grafana instance name (for error messages)
+ * @return Grafana API key string
  */
-def generateGrafanaApiKey(resourceGroup, grafanaName, keyName = 'jenkins-migration') {
-    echo "========================================="
-    echo "Generating Grafana API Key"
-    echo "========================================="
-    echo "Resource Group: ${resourceGroup}"
-    echo "Grafana Name: ${grafanaName}"
-    echo "Key Name: ${keyName}"
-    echo "========================================="
+def getGrafanaApiKey(namespace, grafanaName = '') {
+    def credentialId = "GRAFANA_API_KEY_${namespace.toUpperCase()}"
+    def grafanaApiKey = null
     
-    // Ejecutar el script - la API key se imprime SOLO en stdout
-    // Los mensajes informativos van a stderr (redirigidos a /dev/null para no interferir)
-    // Construir el comando con la regex escapada correctamente
-    // Usar una variable para el patrón regex para evitar problemas de interpolación de Groovy
-    // El patrón no incluye el $ final para evitar problemas de escape
-    def regexPattern = '^[A-Za-z0-9_-]{20,}'
-    def apiKeyRaw = sh(
-        script: """
-            chmod +x jenkins/scripts/generate-grafana-api-key.sh || true
-            jenkins/scripts/generate-grafana-api-key.sh "${resourceGroup}" "${grafanaName}" "${keyName}" 2>/dev/null | grep -E '${regexPattern}' | head -1
-        """,
-        returnStdout: true
-    ).trim()
-    
-    echo "Debug: First extraction attempt result length: ${apiKeyRaw?.length() ?: 0}"
-    
-    // Si no se obtuvo, intentar leer del archivo .grafana-api-key
-    if (!apiKeyRaw || apiKeyRaw.isEmpty() || apiKeyRaw.length() < 20) {
-        if (fileExists('.grafana-api-key')) {
-            echo "Debug: Attempting to read from .grafana-api-key file"
-            apiKeyRaw = readFile('.grafana-api-key').trim()
-            echo "Debug: File content length: ${apiKeyRaw?.length() ?: 0}"
-        }
-    }
-    
-    // Si aún no se tiene, ejecutar de nuevo y extraer de cualquier formato
-    if (!apiKeyRaw || apiKeyRaw.isEmpty() || apiKeyRaw.length() < 20) {
-        echo "Debug: Attempting full output extraction"
-        def fullOutput = sh(
-            script: """
-                jenkins/scripts/generate-grafana-api-key.sh "${resourceGroup}" "${grafanaName}" "${keyName}" 2>&1 || true
-            """,
-            returnStdout: true
-        ).trim()
-        
-        echo "Debug: Full output length: ${fullOutput?.length() ?: 0}"
-        echo "Debug: Full output preview (first 200 chars): ${fullOutput?.take(200) ?: 'empty'}"
-        
-        // Buscar líneas que parezcan API keys (formato Grafana: alfanumérico, guiones, guiones bajos, 20+ caracteres)
-        // Usar split en lugar de eachLine para compatibilidad con Jenkins CPS
-        if (fullOutput) {
-            def lines = fullOutput.split('\n')
-            echo "Debug: Number of lines in output: ${lines.length}"
-            
-            for (def i = 0; i < lines.length; i++) {
-                def line = lines[i]
-                def trimmed = line?.trim()
-                // Las API keys de Grafana Azure suelen ser strings alfanuméricos largos
-                if (trimmed && trimmed.length() >= 20 && trimmed.matches(/^[A-Za-z0-9_-]+$/) && !trimmed.contains(' ') && !trimmed.contains('API') && !trimmed.contains('Key') && !trimmed.contains('Error')) {
-                    echo "Debug: Found potential API key in line ${i + 1}, length: ${trimmed.length()}"
-                    apiKeyRaw = trimmed
-                    break
-                }
+    // Intentar obtener la credencial específica del ambiente
+    try {
+        withCredentials([
+            string(credentialsId: credentialId, variable: 'GRAFANA_API_KEY')
+        ]) {
+            grafanaApiKey = env.GRAFANA_API_KEY
+            if (grafanaApiKey && grafanaApiKey.length() >= 20) {
+                echo "✓ Using ${credentialId} from Jenkins credentials"
+                return grafanaApiKey
             }
+        }
+    } catch (Exception e) {
+        // Si no existe, esperar hasta que se configure
+        echo ""
+        echo "========================================="
+        echo "⚠ Grafana API Key credential not found"
+        echo "========================================="
+        echo ""
+        echo "Required credential ID: ${credentialId}"
+        echo ""
+        echo "Please configure the credential in Jenkins:"
+        echo "  1. Jenkins → Manage Jenkins → Credentials"
+        echo "  2. Add credential:"
+        echo "     - Type: Secret text"
+        echo "     - Secret: [Grafana Service Account Token]"
+        echo "     - ID: ${credentialId}"
+        echo "     - Description: Grafana API Key for ${namespace}"
+        echo "  3. Save"
+        echo ""
+        if (grafanaName) {
+            echo "To get the token:"
+            echo "  Azure Portal → Azure Managed Grafana → ${grafanaName}"
+            echo "  → Open Grafana → Administration → Service Accounts"
+            echo "  → Create Service Account (Admin) → Generate Token"
+            echo ""
+        }
+        echo "See: docs/MANUAL_GRAFANA_API_KEY.md"
+        echo ""
+        echo "Waiting for credential (max 10 minutes)..."
+        echo ""
+        
+        // Esperar hasta que se configure la credencial
+        def maxAttempts = 120 // 10 minutos (5 segundos por intento)
+        def attempt = 0
+        
+        while (attempt < maxAttempts) {
+            sleep(time: 5, unit: 'SECONDS')
+            attempt++
             
-            // Si aún no se encontró, buscar después de "API Key:"
-            if (!apiKeyRaw || apiKeyRaw.isEmpty() || apiKeyRaw.length() < 20) {
-                for (def i = 0; i < lines.length; i++) {
-                    def line = lines[i]
-                    if (line && line.contains('API Key:') && !line.contains('⚠') && !line.contains('Error')) {
-                        def match = line =~ /API Key:\s*([A-Za-z0-9_-]{20,})/
-                        if (match) {
-                            echo "Debug: Found API key after 'API Key:' in line ${i + 1}"
-                            apiKeyRaw = match[0][1].trim()
-                            break
-                        }
+            try {
+                withCredentials([
+                    string(credentialsId: credentialId, variable: 'GRAFANA_API_KEY')
+                ]) {
+                    grafanaApiKey = env.GRAFANA_API_KEY
+                    if (grafanaApiKey && grafanaApiKey.length() >= 20) {
+                        echo "✓ Credential ${credentialId} found! Continuing..."
+                        return grafanaApiKey
                     }
                 }
+            } catch (Exception retryError) {
+                if (attempt % 12 == 0) { // Mensaje cada minuto
+                    echo "Still waiting... (${attempt * 5}s elapsed)"
+                }
             }
         }
+        
+        error("Timeout: ${credentialId} not found after 10 minutes. Please configure the credential and rerun.")
     }
     
-    def apiKey = apiKeyRaw
-    
-    // Validar que la API key tenga el formato correcto (Grafana API keys suelen ser 20+ caracteres)
-    if (apiKey && apiKey.length() >= 20 && apiKey.matches(/^[A-Za-z0-9_-]+$/)) {
-        echo "✓ Grafana API Key generated successfully (length: ${apiKey.length()})"
-        return apiKey
-    } else {
-        echo "⚠ Warning: Could not extract valid API key from output"
-        if (apiKey) {
-            echo "Extracted value (may be invalid): ${apiKey.take(10)}... (length: ${apiKey.length()})"
-        }
-        echo "Attempted to generate API key but extraction failed"
-        return null
+    // Validación final
+    if (!grafanaApiKey || grafanaApiKey.length() < 20) {
+        error("Invalid Grafana API key. Please verify the credential ${credentialId} in Jenkins.")
     }
+    
+    return grafanaApiKey
 }
 
 /**

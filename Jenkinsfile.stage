@@ -204,111 +204,16 @@ pipeline {
                     def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                     def monitoringOutputs = commonFunctions.loadMonitoringOutputs(env.K8S_NAMESPACE)
                     
-                    // Intentar obtener API key de credenciales o generarla automáticamente
-                    def grafanaApiKey = null
+                    // Obtener token de Grafana (espera automáticamente si no existe)
+                    def grafanaApiKey = commonFunctions.getGrafanaApiKey(env.K8S_NAMESPACE, monitoringOutputs.grafanaName)
                     
-                    // Primero intentar desde credenciales de Jenkins
-                    try {
-                        withCredentials([
-                            string(credentialsId: 'GRAFANA_API_KEY', variable: 'GRAFANA_API_KEY')
-                        ]) {
-                            grafanaApiKey = env.GRAFANA_API_KEY
-                            echo "✓ Using GRAFANA_API_KEY from Jenkins credentials"
-                        }
-                    } catch (Exception e) {
-                        echo "⚠ GRAFANA_API_KEY credential not found, attempting to generate automatically..."
-                        
-                        // Generar API key automáticamente
-                        withCredentials([
-                            string(credentialsId: 'ARM_CLIENT_ID', variable: 'ARM_CLIENT_ID'),
-                            string(credentialsId: 'ARM_CLIENT_SECRET', variable: 'ARM_CLIENT_SECRET'),
-                            string(credentialsId: 'ARM_TENANT_ID', variable: 'ARM_TENANT_ID'),
-                            string(credentialsId: 'ARM_SUBSCRIPTION_ID', variable: 'ARM_SUBSCRIPTION_ID')
-                        ]) {
-                            sh '''
-                                az login --service-principal -u "$ARM_CLIENT_ID" -p "$ARM_CLIENT_SECRET" --tenant "$ARM_TENANT_ID" >/dev/null
-                                az account set --subscription "$ARM_SUBSCRIPTION_ID" >/dev/null
-                            '''
-                            
-                            // Obtener grafana name desde los outputs de monitoring (ya disponibles)
-                            def grafanaName = monitoringOutputs.grafanaName
-                            
-                            // Si no está disponible, usar valor por defecto
-                            if (!grafanaName || grafanaName.isEmpty()) {
-                                grafanaName = "ecom-${env.K8S_NAMESPACE == 'staging' ? 'stg' : env.K8S_NAMESPACE}-grafana"
-                                echo "⚠ Grafana name not found in outputs, using default: ${grafanaName}"
-                            }
-                            
-                            // El resource group sigue el patrón: ecommerce-{namespace}-rg
-                            def resourceGroup = "ecommerce-${env.K8S_NAMESPACE}-rg"
-                            
-                            echo "Attempting to generate API key for:"
-                            echo "  Resource Group: ${resourceGroup}"
-                            echo "  Grafana Name: ${grafanaName}"
-                            
-                            // Verificar que el Grafana existe antes de generar la API key
-                            def grafanaExists = sh(
-                                script: "az grafana show --name '${grafanaName}' --resource-group '${resourceGroup}' --query 'name' -o tsv 2>/dev/null || echo ''",
-                                returnStdout: true
-                            ).trim()
-                            
-                            if (!grafanaExists) {
-                                echo "⚠ Warning: Grafana '${grafanaName}' not found in resource group '${resourceGroup}'"
-                                echo "  Attempting to find Grafana by endpoint..."
-                                
-                                // Intentar encontrar el Grafana por endpoint
-                                def grafanaEndpoint = monitoringOutputs.grafanaEndpoint
-                                def foundGrafana = sh(
-                                    script: """
-                                        GRAFANA_ENDPOINT="${grafanaEndpoint}"
-                                        GRAFANA_DOMAIN=\$(echo "\$GRAFANA_ENDPOINT" | sed 's|https://||' | sed 's|http://||' | sed 's|/.*||')
-                                        az grafana list --query "[?contains(properties.endpoint, '\${GRAFANA_DOMAIN}')].{name:name, resourceGroup:resourceGroup}" -o json 2>/dev/null | head -5
-                                    """,
-                                    returnStdout: true
-                                ).trim()
-                                
-                                if (foundGrafana && foundGrafana.contains('"name"')) {
-                                    try {
-                                        def grafanaList = readJSON text: foundGrafana
-                                        if (grafanaList && grafanaList.size() > 0) {
-                                            grafanaName = grafanaList[0].name
-                                            resourceGroup = grafanaList[0].resourceGroup
-                                            echo "✓ Found Grafana: ${grafanaName} in ${resourceGroup}"
-                                        }
-                                    } catch (Exception parseError) {
-                                        echo "Warning: Could not parse Grafana list, using defaults"
-                                    }
-                                }
-                            }
-                            
-                            grafanaApiKey = commonFunctions.generateGrafanaApiKey(resourceGroup, grafanaName, 'jenkins-migration')
-                            
-                            // Debug: verificar que la API key sea válida
-                            if (grafanaApiKey) {
-                                echo "Debug: API key obtained, length: ${grafanaApiKey.length()}"
-                                echo "Debug: API key preview: ${grafanaApiKey.take(10)}..."
-                            } else {
-                                echo "Debug: API key is null or empty"
-                            }
-                        }
-                    }
-                    
-                    // Migrar dashboards si tenemos API key
-                    if (grafanaApiKey && grafanaApiKey.length() >= 20) {
-                        echo "Migrating Grafana dashboards to Azure Managed Grafana..."
-                        commonFunctions.migrateGrafanaDashboards(
-                            monitoringOutputs.grafanaEndpoint,
-                            grafanaApiKey,
-                            monitoringOutputs.prometheusQueryEndpoint,
-                            'k8s/monitoring/grafana-dashboards'
-                        )
-                    } else {
-                        echo "⚠ Warning: Could not obtain valid Grafana API key. Skipping dashboard migration."
-                        if (grafanaApiKey) {
-                            echo "API key value (invalid): ${grafanaApiKey.take(50)}..."
-                        }
-                        echo "You can manually migrate dashboards later or configure the GRAFANA_API_KEY credential in Jenkins"
-                    }
+                    // Migrar dashboards
+                    commonFunctions.migrateGrafanaDashboards(
+                        monitoringOutputs.grafanaEndpoint,
+                        grafanaApiKey,
+                        monitoringOutputs.prometheusQueryEndpoint,
+                        'k8s/monitoring/grafana-dashboards'
+                    )
                 }
             }
         }
