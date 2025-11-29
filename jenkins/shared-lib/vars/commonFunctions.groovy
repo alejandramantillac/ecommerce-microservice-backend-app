@@ -1103,7 +1103,7 @@ def getGrafanaApiKey(namespace, grafanaName = '') {
  * @param prometheusQueryEndpoint Prometheus query endpoint for datasource configuration
  * @param dashboardsDir Directory containing dashboard JSON files
  */
-def migrateGrafanaDashboards(grafanaEndpoint, grafanaApiKey, prometheusQueryEndpoint = '', dashboardsDir = 'k8s/monitoring/grafana-dashboards') {
+def migrateGrafanaDashboards(grafanaEndpoint, grafanaApiKey, prometheusQueryEndpoint = '', dashboardsDir = 'k8s/monitoring/grafana-dashboards', environment = 'staging') {
     echo "========================================="
     echo "Migrating Grafana Dashboards"
     echo "========================================="
@@ -1130,7 +1130,8 @@ def migrateGrafanaDashboards(grafanaEndpoint, grafanaApiKey, prometheusQueryEndp
         jenkins/scripts/migrate-grafana-dashboards.sh \
             "${grafanaEndpoint}" \
             "${grafanaApiKey}" \
-            "${dashboardsDir}"
+            "${dashboardsDir}" \
+            "${environment}"
     """
     
     echo ""

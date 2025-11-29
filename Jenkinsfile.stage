@@ -212,7 +212,8 @@ pipeline {
                         monitoringOutputs.grafanaEndpoint,
                         grafanaApiKey,
                         monitoringOutputs.prometheusQueryEndpoint,
-                        'k8s/monitoring/grafana-dashboards'
+                        'k8s/monitoring/grafana-dashboards',
+                        env.TARGET_ENVIRONMENT
                     )
                 }
             }
