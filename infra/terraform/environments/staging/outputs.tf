@@ -31,6 +31,10 @@ output "prometheus_workspace_id" {
   value = module.monitoring.prometheus_workspace_id
 }
 
+output "prometheus_workspace_name" {
+  value = module.monitoring.prometheus_workspace_name
+}
+
 output "prometheus_ingestion_endpoint" {
   value       = module.monitoring.prometheus_ingestion_endpoint
   sensitive   = true

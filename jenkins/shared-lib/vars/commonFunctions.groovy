@@ -211,38 +211,79 @@ def getTerraformOutput(envNamespace, outputName) {
  */
 def getMonitoringOutputs(envNamespace) {
     // Obtener outputs básicos de Terraform
-    def prometheusWsName = getTerraformOutput(envNamespace, 'prometheus_workspace_name')
     def resourceGroupName = getTerraformOutput(envNamespace, 'resource_group_name')
     def terraformQueryEndpoint = getTerraformOutput(envNamespace, 'prometheus_query_endpoint')
     def terraformIngestionEndpoint = getTerraformOutput(envNamespace, 'prometheus_ingestion_endpoint')
+    
+    // Intentar obtener el nombre del workspace desde Terraform
+    // Si no está disponible como output directo, extraerlo del endpoint o usar el ID
+    def prometheusWsName = getTerraformOutput(envNamespace, 'prometheus_workspace_name')
+    
+    // Si el nombre no está disponible, intentar extraerlo del endpoint o usar el ID
+    if (!prometheusWsName || prometheusWsName.isEmpty()) {
+        // Intentar extraer el nombre del endpoint de Terraform
+        if (terraformQueryEndpoint && terraformQueryEndpoint.contains('prometheus.monitor.azure.com')) {
+            def match = terraformQueryEndpoint =~ /https:\/\/([^.]+)\./
+            if (match) {
+                prometheusWsName = match[0][1]
+                echo "Extracted workspace name from endpoint: ${prometheusWsName}"
+            }
+        }
+        
+        // Si aún no tenemos el nombre, intentar obtenerlo desde el workspace ID
+        if (!prometheusWsName || prometheusWsName.isEmpty()) {
+            def workspaceId = getTerraformOutput(envNamespace, 'prometheus_workspace_id')
+            if (workspaceId && workspaceId.contains('/accounts/')) {
+                def parts = workspaceId.split('/')
+                def accountIndex = parts.findIndexOf { it == 'accounts' }
+                if (accountIndex >= 0 && accountIndex < parts.size() - 1) {
+                    prometheusWsName = parts[accountIndex + 1]
+                    echo "Extracted workspace name from ID: ${prometheusWsName}"
+                }
+            }
+        }
+    }
     
     // Obtener el endpoint real desde Azure CLI (incluye el sufijo aleatorio)
     // Azure agrega un sufijo aleatorio al nombre del workspace en el endpoint
     def realQueryEndpoint = terraformQueryEndpoint
     def realIngestionEndpoint = terraformIngestionEndpoint
     
-    try {
-        echo "Obtaining real Prometheus endpoint from Azure (includes random suffix)..."
-        def azureEndpoint = sh(
-            script: """
-                az monitor account show \
-                    --name "${prometheusWsName}" \
-                    --resource-group "${resourceGroupName}" \
-                    --query "metrics.prometheusQueryEndpoint" \
-                    -o tsv 2>/dev/null || echo ""
-            """,
-            returnStdout: true
-        ).trim()
-        
-        if (azureEndpoint && azureEndpoint.length() > 0) {
-            echo "✓ Found real Prometheus endpoint: ${azureEndpoint}"
-            realQueryEndpoint = azureEndpoint
-            realIngestionEndpoint = azureEndpoint  // Same endpoint for both query and ingestion
-        } else {
-            echo "⚠ Could not get endpoint from Azure CLI, using Terraform output"
+    if (prometheusWsName && !prometheusWsName.isEmpty() && resourceGroupName && !resourceGroupName.isEmpty()) {
+        try {
+            echo "Obtaining real Prometheus endpoint from Azure (includes random suffix)..."
+            echo "  Workspace: ${prometheusWsName}"
+            echo "  Resource Group: ${resourceGroupName}"
+            
+            def azureEndpoint = sh(
+                script: """
+                    az monitor account show \
+                        --name "${prometheusWsName}" \
+                        --resource-group "${resourceGroupName}" \
+                        --query "metrics.prometheusQueryEndpoint" \
+                        -o tsv 2>/dev/null || echo ""
+                """,
+                returnStdout: true
+            ).trim()
+            
+            if (azureEndpoint && azureEndpoint.length() > 0 && azureEndpoint.startsWith('https://')) {
+                echo "✓ Found real Prometheus endpoint: ${azureEndpoint}"
+                realQueryEndpoint = azureEndpoint
+                realIngestionEndpoint = azureEndpoint  // Same endpoint for both query and ingestion
+            } else {
+                echo "⚠ Could not get endpoint from Azure CLI (empty or invalid response), using Terraform output"
+                if (azureEndpoint) {
+                    echo "  Azure CLI returned: ${azureEndpoint}"
+                }
+            }
+        } catch (Exception e) {
+            echo "⚠ Error getting endpoint from Azure CLI: ${e.getMessage()}"
+            echo "  Using Terraform output as fallback"
         }
-    } catch (Exception e) {
-        echo "⚠ Error getting endpoint from Azure CLI: ${e.getMessage()}"
+    } else {
+        echo "⚠ Cannot get endpoint from Azure CLI: missing workspace name or resource group"
+        echo "  Workspace name: ${prometheusWsName ?: 'empty'}"
+        echo "  Resource group: ${resourceGroupName ?: 'empty'}"
         echo "  Using Terraform output as fallback"
     }
     
