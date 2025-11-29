@@ -187,7 +187,7 @@ resource "null_resource" "grafana_service_account" {
       fi
       
       # Crear Service Account
-      SERVICE_ACCOUNT_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+      SERVICE_ACCOUNT_RESPONSE=$(curl -s -w "\n%%{http_code}" -X POST \
         -H "Authorization: Bearer ${AZURE_TOKEN}" \
         -H "Content-Type: application/json" \
         -d "{\"name\":\"${SERVICE_ACCOUNT_NAME}\",\"role\":\"Admin\",\"isDisabled\":false}" \
@@ -267,7 +267,7 @@ resource "null_resource" "grafana_service_account_token" {
       fi
       
       # Crear Token
-      TOKEN_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+      TOKEN_RESPONSE=$(curl -s -w "\n%%{http_code}" -X POST \
         -H "Authorization: Bearer ${AZURE_TOKEN}" \
         -H "Content-Type: application/json" \
         -d "{\"name\":\"${TOKEN_NAME}\",\"secondsToLive\":0}" \
