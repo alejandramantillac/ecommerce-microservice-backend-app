@@ -152,3 +152,160 @@ resource "azurerm_monitor_action_group" "alerts" {
   tags = var.tags
 }
 
+# Service Account de Grafana para Jenkins
+# Usamos null_resource con local-exec porque Azure Managed Grafana
+# requiere autenticación específica que es más fácil manejar con scripts
+resource "null_resource" "grafana_service_account" {
+  depends_on = [azurerm_dashboard_grafana.grafana]
+
+  triggers = {
+    grafana_id          = azurerm_dashboard_grafana.grafana.id
+    grafana_name        = azurerm_dashboard_grafana.grafana.name
+    service_account_name = "jenkins-migration"
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      # Obtener el endpoint de Grafana
+      GRAFANA_ENDPOINT="${azurerm_dashboard_grafana.grafana.endpoint}"
+      GRAFANA_NAME="${azurerm_dashboard_grafana.grafana.name}"
+      RESOURCE_GROUP="${var.resource_group_name}"
+      SERVICE_ACCOUNT_NAME="jenkins-migration"
+      
+      # Verificar que Grafana esté listo
+      echo "Waiting for Grafana to be ready..."
+      sleep 30
+      
+      # Intentar crear Service Account usando Azure CLI y API REST
+      # Primero obtener token de Azure
+      AZURE_TOKEN=$(az account get-access-token --resource https://grafana.azure.com --query accessToken -o tsv 2>/dev/null || echo "")
+      
+      if [ -z "$AZURE_TOKEN" ]; then
+        echo "Warning: Could not get Azure token. Service Account will need to be created manually."
+        echo "See docs/MANUAL_GRAFANA_API_KEY.md for instructions"
+        exit 0
+      fi
+      
+      # Crear Service Account
+      SERVICE_ACCOUNT_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+        -H "Authorization: Bearer ${AZURE_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"${SERVICE_ACCOUNT_NAME}\",\"role\":\"Admin\",\"isDisabled\":false}" \
+        "${GRAFANA_ENDPOINT}/api/serviceaccounts" 2>&1)
+      
+      HTTP_CODE=$(echo "$SERVICE_ACCOUNT_RESPONSE" | tail -n1)
+      SERVICE_ACCOUNT_JSON=$(echo "$SERVICE_ACCOUNT_RESPONSE" | sed '$d')
+      
+      if [ "$HTTP_CODE" = "201" ] || [ "$HTTP_CODE" = "200" ]; then
+        echo "✓ Service Account created successfully"
+      elif echo "$SERVICE_ACCOUNT_JSON" | grep -q "already exists"; then
+        echo "✓ Service Account already exists"
+      else
+        echo "Warning: Could not create Service Account automatically (HTTP ${HTTP_CODE})"
+        echo "Response: ${SERVICE_ACCOUNT_JSON}"
+        echo "Please create it manually via Grafana UI (see docs/MANUAL_GRAFANA_API_KEY.md)"
+      fi
+    EOT
+
+    interpreter = ["bash", "-c"]
+  }
+
+  # Cleanup: eliminar Service Account cuando se destruya el recurso (opcional)
+  provisioner "local-exec" {
+    when    = destroy
+    command = <<-EOT
+      echo "Note: Service Account 'jenkins-migration' should be deleted manually from Grafana UI if needed"
+    EOT
+
+    interpreter = ["bash", "-c"]
+  }
+}
+
+# Token del Service Account de Grafana
+# Este recurso crea el token para el Service Account
+resource "null_resource" "grafana_service_account_token" {
+  depends_on = [null_resource.grafana_service_account]
+
+  triggers = {
+    grafana_id          = azurerm_dashboard_grafana.grafana.id
+    service_account_id  = null_resource.grafana_service_account.id
+    token_name          = "jenkins-migration-token"
+  }
+
+  provisioner "local-exec" {
+    command = <<-EOT
+      GRAFANA_ENDPOINT="${azurerm_dashboard_grafana.grafana.endpoint}"
+      GRAFANA_NAME="${azurerm_dashboard_grafana.grafana.name}"
+      RESOURCE_GROUP="${var.resource_group_name}"
+      SERVICE_ACCOUNT_NAME="jenkins-migration"
+      TOKEN_NAME="jenkins-migration-token"
+      
+      # Obtener token de Azure
+      AZURE_TOKEN=$(az account get-access-token --resource https://grafana.azure.com --query accessToken -o tsv 2>/dev/null || echo "")
+      
+      if [ -z "$AZURE_TOKEN" ]; then
+        echo "Warning: Could not get Azure token. Token will need to be created manually."
+        exit 0
+      fi
+      
+      # Buscar el Service Account
+      SERVICE_ACCOUNTS_LIST=$(curl -s -X GET \
+        -H "Authorization: Bearer ${AZURE_TOKEN}" \
+        -H "Content-Type: application/json" \
+        "${GRAFANA_ENDPOINT}/api/serviceaccounts/search?query=${SERVICE_ACCOUNT_NAME}" 2>&1)
+      
+      # Extraer ID del Service Account
+      if command -v jq &> /dev/null; then
+        SERVICE_ACCOUNT_ID=$(echo "$SERVICE_ACCOUNTS_LIST" | jq -r ".serviceAccounts[] | select(.name==\"${SERVICE_ACCOUNT_NAME}\") | .id" 2>/dev/null | head -1)
+      else
+        SERVICE_ACCOUNT_ID=$(echo "$SERVICE_ACCOUNTS_LIST" | grep -oE '"id":[0-9]+' | head -1 | cut -d':' -f2)
+      fi
+      
+      if [ -z "$SERVICE_ACCOUNT_ID" ]; then
+        echo "Warning: Could not find Service Account. Please create it manually first."
+        exit 0
+      fi
+      
+      # Crear Token
+      TOKEN_RESPONSE=$(curl -s -w "\n%{http_code}" -X POST \
+        -H "Authorization: Bearer ${AZURE_TOKEN}" \
+        -H "Content-Type: application/json" \
+        -d "{\"name\":\"${TOKEN_NAME}\",\"secondsToLive\":0}" \
+        "${GRAFANA_ENDPOINT}/api/serviceaccounts/${SERVICE_ACCOUNT_ID}/tokens" 2>&1)
+      
+      TOKEN_HTTP_CODE=$(echo "$TOKEN_RESPONSE" | tail -n1)
+      TOKEN_JSON=$(echo "$TOKEN_RESPONSE" | sed '$d')
+      
+      if [ "$TOKEN_HTTP_CODE" = "201" ] || [ "$TOKEN_HTTP_CODE" = "200" ]; then
+        # Extraer el token
+        if command -v jq &> /dev/null; then
+          API_KEY=$(echo "$TOKEN_JSON" | jq -r '.key // empty' 2>/dev/null)
+        else
+          API_KEY=$(echo "$TOKEN_JSON" | grep -o '"key":"[^"]*' | cut -d'"' -f4)
+        fi
+        
+        if [ -n "$API_KEY" ] && [ "$API_KEY" != "null" ]; then
+          echo "✓ Token created successfully"
+          echo ""
+          echo "========================================="
+          echo "Grafana API Token (Service Account Token)"
+          echo "========================================="
+          echo "Token: ${API_KEY}"
+          echo "========================================="
+          echo ""
+          echo "IMPORTANT: Save this token! It's only shown once."
+          echo "Add it to Jenkins as credential 'GRAFANA_API_KEY'"
+        else
+          echo "Warning: Token created but could not extract it from response"
+        fi
+      else
+        echo "Warning: Could not create token automatically (HTTP ${TOKEN_HTTP_CODE})"
+        echo "Response: ${TOKEN_JSON}"
+        echo "Please create it manually via Grafana UI (see docs/MANUAL_GRAFANA_API_KEY.md)"
+      fi
+    EOT
+
+    interpreter = ["bash", "-c"]
+  }
+}
+
