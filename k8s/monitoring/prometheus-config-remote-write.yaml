@@ -21,6 +21,8 @@ data:
         environment: '${ENVIRONMENT}'
 
     # Remote write a Azure Monitor Workspace
+    # Note: Azure Monitor Workspace requires azuread authentication (not oauth2)
+    # The endpoint should be: https://<workspace-name>.<region>.prometheus.monitor.azure.com/api/v1/write
     remote_write:
       - url: '${AZURE_PROMETHEUS_INGESTION_ENDPOINT}/api/v1/write'
         write_relabel_configs:
@@ -32,13 +34,13 @@ data:
           batch_send_deadline: 5s
           max_shards: 200
           min_shards: 1
-        # Autenticación OAuth2 con Azure AD
-        oauth2:
-          client_id: '${AZURE_CLIENT_ID}'
-          client_secret: '${AZURE_CLIENT_SECRET}'
-          token_url: 'https://login.microsoftonline.com/${AZURE_TENANT_ID}/oauth2/v2.0/token'
-          scopes:
-            - 'https://monitor.azure.com/.default'
+        # Autenticación Azure AD (requerida para Azure Monitor Workspace)
+        azuread:
+          cloud: 'AzurePublic'
+          oauth:
+            client_id: '${AZURE_CLIENT_ID}'
+            client_secret: '${AZURE_CLIENT_SECRET}'
+            tenant_id: '${AZURE_TENANT_ID}'
 
     # Scrape configurations
     scrape_configs:
