@@ -27,7 +27,7 @@ locals {
   # O http://app-name.default-domain:9200 para acceso interno
   # Usar %% para escapar el % en la sintaxis de Logstash dentro del heredoc de Terraform
   # Construir el endpoint correcto: HTTPS sin puerto para público, HTTP con puerto para interno
-  elasticsearch_endpoint_for_pipeline = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "https://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
+  elasticsearch_endpoint_for_pipeline = "https://${azurerm_container_app.elasticsearch.ingress[0].fqdn}:443"
   
   logstash_pipeline_config = <<-EOT
 input {
@@ -231,7 +231,7 @@ resource "azurerm_container_app" "logstash" {
       # Si no, intentar usar el endpoint interno (puede no funcionar sin VNet integration)
       env {
         name  = "ELASTICSEARCH_ENDPOINT"
-        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "https://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
+        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "https://${azurerm_container_app.elasticsearch.ingress[0].fqdn}:443" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
       }
       env {
         name  = "ELASTICSEARCH_USE_SSL"
@@ -250,7 +250,7 @@ resource "azurerm_container_app" "logstash" {
       }
       env {
         name  = "XPACK_MONITORING_ELASTICSEARCH_HOSTS"
-        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "https://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
+        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "https://${azurerm_container_app.elasticsearch.ingress[0].fqdn}:443" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
       }
       # Configurar Java para aceptar certificados SSL cuando se usa HTTPS
       # Azure Container Apps usa certificados válidos, pero Java puede necesitar configuración adicional
@@ -317,7 +317,7 @@ resource "azurerm_container_app" "kibana" {
       # Si no está disponible, intentar usar endpoint interno (puede no funcionar sin VNet integration)
       env {
         name  = "ELASTICSEARCH_HOSTS"
-        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "https://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
+        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "https://${azurerm_container_app.elasticsearch.ingress[0].fqdn}:443" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
       }
       env {
         name  = "SERVER_NAME"
