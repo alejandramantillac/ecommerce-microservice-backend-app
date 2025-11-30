@@ -380,6 +380,111 @@ def getMonitoringOutputs(envNamespace) {
 }
 
 /**
+ * Assign Monitoring Metrics Publisher role to Service Principal on DCR
+ * This is required for Prometheus Agent to send metrics to Azure Monitor Workspace
+ * @param namespace Kubernetes namespace (staging/prod)
+ * @param clientId Azure AD Service Principal Client ID
+ */
+def assignDcrPermissions(namespace, clientId) {
+    echo "========================================="
+    echo "Assigning DCR Permissions"
+    echo "========================================="
+        echo "Namespace: ${namespace}"
+    echo "Client ID: ${clientId}"
+    echo "========================================="
+    
+    def resourceGroupName = getTerraformOutput(namespace, 'resource_group_name')
+    if (!resourceGroupName || resourceGroupName.isEmpty()) {
+        error("Cannot assign DCR permissions: resource_group_name not found in Terraform outputs")
+}
+    
+    // Get Object ID (Principal ID) from Client ID
+    def objectId = sh(
+        script: """
+            az ad sp show --id "${clientId}" --query "id" -o tsv 2>/dev/null || echo ""
+        """,
+        returnStdout: true
+    ).trim()
+    
+    if (!objectId || objectId.isEmpty()) {
+        error("Cannot assign DCR permissions: Could not get Object ID from Client ID ${clientId}")
+    }
+    
+    echo "Object ID (Principal ID): ${objectId}"
+    
+    // Get DCR ID
+    def dcrName = sh(
+        script: """
+            az monitor data-collection rule list \
+                --resource-group "${resourceGroupName}" \
+                --query "[?contains(name, 'prom-dcr')].name" \
+                -o tsv 2>/dev/null | head -1 || echo ""
+        """,
+        returnStdout: true
+    ).trim()
+    
+    if (!dcrName || dcrName.isEmpty()) {
+        error("Cannot assign DCR permissions: DCR not found in resource group ${resourceGroupName}")
+    }
+    
+    def dcrId = sh(
+        script: """
+            az monitor data-collection rule show \
+                --name "${dcrName}" \
+                --resource-group "${resourceGroupName}" \
+                --query "id" \
+                -o tsv 2>/dev/null || echo ""
+        """,
+        returnStdout: true
+    ).trim()
+    
+    echo "DCR: ${dcrName}"
+    echo "DCR ID: ${dcrId}"
+    
+    // Check if role assignment already exists
+    def existingAssignment = sh(
+        script: """
+            az role assignment list \
+                --scope "${dcrId}" \
+                --assignee "${objectId}" \
+                --query "[?roleDefinitionName=='Monitoring Metrics Publisher'].id" \
+                -o tsv 2>/dev/null || echo ""
+        """,
+        returnStdout: true
+    ).trim()
+    
+    if (existingAssignment && !existingAssignment.isEmpty()) {
+        echo "✓ Role 'Monitoring Metrics Publisher' already assigned"
+        echo "  Assignment ID: ${existingAssignment}"
+    } else {
+        // Create role assignment
+        echo "Assigning role 'Monitoring Metrics Publisher'..."
+        def assignmentId = sh(
+            script: """
+                az role assignment create \
+                    --scope "${dcrId}" \
+                    --role "Monitoring Metrics Publisher" \
+                    --assignee "${objectId}" \
+                    --query "id" \
+                    -o tsv 2>/dev/null || echo ""
+            """,
+            returnStdout: true
+        ).trim()
+        
+        if (assignmentId && !assignmentId.isEmpty()) {
+            echo "✓ Role assigned successfully"
+            echo "  Assignment ID: ${assignmentId}"
+        } else {
+            error("Failed to assign role 'Monitoring Metrics Publisher' to Service Principal")
+        }
+    }
+    
+    echo ""
+    echo "⚠️ Note: Permissions may take 5-10 minutes to propagate in Azure"
+    echo "========================================="
+}
+
+/**
  * Save monitoring outputs to file for later use
  * @param envNamespace Environment namespace
  * @param outputs Map with monitoring outputs

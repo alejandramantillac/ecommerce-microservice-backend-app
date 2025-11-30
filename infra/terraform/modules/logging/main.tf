@@ -206,9 +206,11 @@ resource "azurerm_container_app" "kibana" {
       cpu    = var.kibana_cpu
       memory = var.kibana_memory
       
+      # Usar endpoint público si está disponible (requiere elasticsearch_public_access = true)
+      # Si no está disponible, intentar usar endpoint interno (puede no funcionar sin VNet integration)
       env {
         name  = "ELASTICSEARCH_HOSTS"
-        value = "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
+        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "http://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
       }
       env {
         name  = "SERVER_NAME"

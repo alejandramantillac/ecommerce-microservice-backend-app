@@ -168,6 +168,21 @@ pipeline {
             }
         }
 
+        stage('Assign DCR Permissions') {
+            steps {
+                unstash 'workspace'
+                script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    echo "Assigning Monitoring Metrics Publisher role to Service Principal on DCR..."
+                    withCredentials([
+                        string(credentialsId: 'ARM_CLIENT_ID', variable: 'ARM_CLIENT_ID')
+                    ]) {
+                        commonFunctions.assignDcrPermissions(env.K8S_NAMESPACE, env.ARM_CLIENT_ID)
+                    }
+                }
+            }
+        }
+
         stage('Deploy Prometheus Agent') {
             steps {
                 unstash 'workspace'

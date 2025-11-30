@@ -90,6 +90,9 @@ resource "azurerm_monitor_data_collection_rule" "prometheus" {
   location            = var.location
   kind                = "Linux"
 
+  # Asociar el DCE con el DCR para permitir remote_write
+  data_collection_endpoint_id = azurerm_monitor_data_collection_endpoint.prometheus.id
+
   destinations {
     monitor_account {
       monitor_account_id = azurerm_monitor_workspace.prometheus.id
