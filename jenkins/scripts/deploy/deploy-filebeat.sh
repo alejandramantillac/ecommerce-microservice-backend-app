@@ -1,23 +1,23 @@
 #!/bin/bash
 # Script to deploy Filebeat to Kubernetes
-# Usage: ./jenkins/scripts/deploy-filebeat.sh <namespace> <environment> <logstash-endpoint>
+# Usage: ./jenkins/scripts/deploy-filebeat.sh <namespace> <environment> <elasticsearch-endpoint>
 
 set -e
 
 NAMESPACE="${1:-staging}"
 ENVIRONMENT="${2:-staging}"
-LOGSTASH_ENDPOINT="${3}"
+ELASTICSEARCH_ENDPOINT="${3}"
 
-if [ -z "$NAMESPACE" ] || [ -z "$ENVIRONMENT" ] || [ -z "$LOGSTASH_ENDPOINT" ]; then
-    echo "Usage: $0 <namespace> <environment> <logstash-endpoint>"
-    echo "Example: $0 staging staging ecom-stg-logstash.bluewave-faea5f9b.eastus2.azurecontainerapps.io"
+if [ -z "$NAMESPACE" ] || [ -z "$ENVIRONMENT" ] || [ -z "$ELASTICSEARCH_ENDPOINT" ]; then
+    echo "Usage: $0 <namespace> <environment> <elasticsearch-endpoint>"
+    echo "Example: $0 staging staging http://ecom-stg-elasticsearch.bluewave-faea5f9b.eastus2.azurecontainerapps.io:9200"
     exit 1
 fi
 
 echo "========================================="
 echo "Deploying Filebeat to ${NAMESPACE}"
 echo "Environment: ${ENVIRONMENT}"
-echo "Logstash Endpoint: ${LOGSTASH_ENDPOINT}"
+echo "Elasticsearch Endpoint: ${ELASTICSEARCH_ENDPOINT}"
 echo "========================================="
 
 # Check kubectl availability
@@ -53,7 +53,7 @@ fi
 # Export variables for envsubst
 export NAMESPACE
 export ENVIRONMENT
-export LOGSTASH_ENDPOINT
+export ELASTICSEARCH_ENDPOINT
 
 # Check if namespace exists
 echo ""
@@ -73,12 +73,12 @@ substitute_vars() {
         envsubst < "$file"
     else
         # Escapar caracteres especiales para sed
-        local escaped_logstash_endpoint=$(echo "$LOGSTASH_ENDPOINT" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        local escaped_elasticsearch_endpoint=$(echo "$ELASTICSEARCH_ENDPOINT" | sed 's/[[\.*^$()+?{|]/\\&/g')
         
         # Replace basic variables
         sed -e "s/\${NAMESPACE}/${NAMESPACE}/g" \
             -e "s/\${ENVIRONMENT}/${ENVIRONMENT}/g" \
-            -e "s/\${LOGSTASH_ENDPOINT}/${escaped_logstash_endpoint}/g" \
+            -e "s|\${ELASTICSEARCH_ENDPOINT}|${escaped_elasticsearch_endpoint}|g" \
             "$file"
     fi
 }
@@ -97,9 +97,9 @@ fi
 echo ""
 echo "Step 2: Deploying ConfigMap..."
 
-# Validate that Logstash endpoint is not empty
-if [ -z "$LOGSTASH_ENDPOINT" ]; then
-    echo "✗ Error: Logstash endpoint is empty"
+# Validate that Elasticsearch endpoint is not empty
+if [ -z "$ELASTICSEARCH_ENDPOINT" ]; then
+    echo "✗ Error: Elasticsearch endpoint is empty"
     exit 1
 fi
 
@@ -107,8 +107,8 @@ fi
 CONFIGMAP_YAML=$(substitute_vars k8s/logging/filebeat-configmap.yaml)
 
 # Verify that substitution worked (check for remaining ${} variables)
-if echo "$CONFIGMAP_YAML" | grep -q '\${LOGSTASH_ENDPOINT'; then
-    echo "✗ Error: Variable substitution failed. ConfigMap still contains unresolved LOGSTASH_ENDPOINT variable"
+if echo "$CONFIGMAP_YAML" | grep -q '\${ELASTICSEARCH_ENDPOINT'; then
+    echo "✗ Error: Variable substitution failed. ConfigMap still contains unresolved ELASTICSEARCH_ENDPOINT variable"
     exit 1
 fi
 
@@ -121,16 +121,16 @@ if echo "$CONFIGMAP_YAML" | kubectl --kubeconfig="$KCFG" apply -f -; then
     echo "  Verifying ConfigMap configuration..."
     sleep 2  # Wait for ConfigMap to be available
     CONFIGMAP_OUTPUT=$(kubectl --kubeconfig="$KCFG" get configmap filebeat-config -n "${NAMESPACE}" -o jsonpath='{.data.filebeat\.yml}' 2>/dev/null || echo "")
-    if echo "$CONFIGMAP_OUTPUT" | grep -q "output.logstash"; then
-        LOGSTASH_HOST_CHECK=$(echo "$CONFIGMAP_OUTPUT" | grep -A 1 "output.logstash" | grep "hosts" | sed "s/.*hosts: \[//" | sed "s/\].*//" | tr -d '"' || echo "")
-        if [ -n "$LOGSTASH_HOST_CHECK" ] && [[ ! "$LOGSTASH_HOST_CHECK" == *"\${"* ]]; then
-            echo "✓ ConfigMap correctly configured for Logstash output"
-            echo "  Logstash endpoint: ${LOGSTASH_HOST_CHECK}"
+    if echo "$CONFIGMAP_OUTPUT" | grep -q "output.elasticsearch"; then
+        ELASTICSEARCH_HOST_CHECK=$(echo "$CONFIGMAP_OUTPUT" | grep -A 1 "output.elasticsearch" | grep "hosts" | sed "s/.*hosts: \[//" | sed "s/\].*//" | tr -d '"' || echo "")
+        if [ -n "$ELASTICSEARCH_HOST_CHECK" ] && [[ ! "$ELASTICSEARCH_HOST_CHECK" == *"\${"* ]]; then
+            echo "✓ ConfigMap correctly configured for Elasticsearch output"
+            echo "  Elasticsearch endpoint: ${ELASTICSEARCH_HOST_CHECK}"
         else
-            echo "⚠ Warning: ConfigMap has Logstash output but endpoint may not be substituted"
+            echo "⚠ Warning: ConfigMap has Elasticsearch output but endpoint may not be substituted"
         fi
     else
-        echo "⚠ Warning: ConfigMap may not have Logstash output configured"
+        echo "⚠ Warning: ConfigMap may not have Elasticsearch output configured"
         echo "  Current output configuration:"
         echo "$CONFIGMAP_OUTPUT" | grep -A 5 "output\." || echo "  No output section found"
     fi
@@ -242,17 +242,17 @@ echo "Next steps:"
 echo "  1. Verify logs are being collected:"
 echo "     kubectl --kubeconfig=\"\${KCFG}\" logs -n ${NAMESPACE} -l app=filebeat | head -20"
 echo ""
-echo "  2. Verify logs are being sent to Logstash:"
-echo "     - Check Filebeat logs for successful connections to Logstash"
-echo "     - Verify no errors related to Logstash connection"
+echo "  2. Verify logs are being sent to Elasticsearch:"
+echo "     - Check Filebeat logs for successful connections to Elasticsearch"
+echo "     - Verify no errors related to Elasticsearch connection"
 echo ""
-echo "  3. Verify Logstash is forwarding to Azure Log Analytics:"
-echo "     - Check Logstash logs in Azure Container Apps"
-echo "     - Verify Logstash is configured to send to Azure Log Analytics"
+echo "  3. Verify logs in Elasticsearch:"
+echo "     curl ${ELASTICSEARCH_ENDPOINT}/filebeat-*/_search?pretty&size=5"
 echo ""
-echo "  4. Verify logs in Azure Log Analytics:"
-echo "     - Go to Azure Portal > Log Analytics Workspace"
-echo "     - Query: Filebeat_CL | take 10"
+echo "  4. Verify logs in Kibana:"
+echo "     - Access Kibana UI"
+echo "     - Go to Discover"
+echo "     - Select index pattern: filebeat-*"
 echo "     - Verify logs are visible with Kubernetes metadata"
 echo ""
 echo "  5. Check Filebeat configuration:"

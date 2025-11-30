@@ -36,11 +36,14 @@ data:
             cluster: "ecommerce-microservices"
             environment: "${ENVIRONMENT}"
     
-    output.logstash:
-      hosts: ["${LOGSTASH_ENDPOINT}:5044"]
-      ssl.enabled: false
-      bulk_max_size: 2048
-      timeout: 30s
+    output.elasticsearch:
+      hosts: ["${ELASTICSEARCH_ENDPOINT}"]
+      index: "filebeat-%{+yyyy.MM.dd}"
+      template.name: "filebeat"
+      template.pattern: "filebeat-*"
+      template.settings:
+        index.number_of_shards: 1
+        index.codec: best_compression
     
     logging.level: info
     logging.to_files: true

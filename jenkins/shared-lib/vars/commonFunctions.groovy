@@ -284,20 +284,64 @@ def getMonitoringOutputs(envNamespace) {
                 realQueryEndpoint = azureQueryEndpoint
             }
             
-            // For ingestion, Azure Monitor Workspace uses the SAME endpoint as query
-            // There is NO separate .metrics.ingest.monitor.azure.com domain
-            // The query endpoint is used for both querying and ingestion
-            if (azureIngestionEndpoint && azureIngestionEndpoint.length() > 0 && azureIngestionEndpoint.startsWith('https://')) {
-                echo "✓ Found real Prometheus ingestion endpoint: ${azureIngestionEndpoint}"
-                realIngestionEndpoint = azureIngestionEndpoint
-            } else if (azureQueryEndpoint && azureQueryEndpoint.length() > 0) {
-                // Use the SAME endpoint for ingestion (Azure Monitor Workspace doesn't have separate ingestion domain)
-                realIngestionEndpoint = azureQueryEndpoint
-                echo "✓ Using query endpoint for ingestion (same endpoint): ${realIngestionEndpoint}"
+            // For ingestion, Azure Monitor Workspace requires using Data Collection Endpoint (DCE) with Data Collection Rule (DCR)
+            // The format is: {DCE_ENDPOINT}/dataCollectionRules/{DCR_ID}/streams/Microsoft-PrometheusMetrics/api/v1/write?api-version=2021-11-01-preview
+            // First, try to get DCE endpoint and DCR ID from Azure CLI
+            def dceName = sh(
+                script: """
+                    az monitor data-collection endpoint list \
+                        --resource-group "${resourceGroupName}" \
+                        --query "[?contains(name, 'prom-dce')].name" \
+                        -o tsv 2>/dev/null | head -1 || echo ""
+                """,
+                returnStdout: true
+            ).trim()
+            
+            if (dceName && !dceName.isEmpty()) {
+                echo "Found DCE: ${dceName}"
+                
+                // Get DCE endpoint
+                def dceEndpoint = sh(
+                    script: """
+                        az monitor data-collection endpoint show \
+                            --name "${dceName}" \
+                            --resource-group "${resourceGroupName}" \
+                            --query "logsIngestion.endpoint" \
+                            -o tsv 2>/dev/null || echo ""
+                    """,
+                    returnStdout: true
+                ).trim()
+                
+                // Get DCR ID
+                def dcrId = sh(
+                    script: """
+                        az monitor data-collection rule list \
+                            --resource-group "${resourceGroupName}" \
+                            --query "[?contains(name, 'prom-dcr')].id" \
+                            -o tsv 2>/dev/null | head -1 || echo ""
+                    """,
+                    returnStdout: true
+                ).trim()
+                
+                if (dceEndpoint && !dceEndpoint.isEmpty() && dcrId && !dcrId.isEmpty()) {
+                    // Extract short DCR ID (just the name, not the full path)
+                    def dcrIdShort = dcrId.replaceAll(/.*\/dataCollectionRules\//, '')
+                    
+                    // Construct the correct remote_write endpoint
+                    realIngestionEndpoint = "${dceEndpoint}/dataCollectionRules/${dcrIdShort}/streams/Microsoft-PrometheusMetrics/api/v1/write?api-version=2021-11-01-preview"
+                    echo "✓ Constructed Prometheus ingestion endpoint using DCE/DCR: ${realIngestionEndpoint}"
+                } else {
+                    echo "⚠ DCE endpoint or DCR ID not found, falling back to workspace endpoint"
+                    if (azureQueryEndpoint && azureQueryEndpoint.length() > 0) {
+                        realIngestionEndpoint = azureQueryEndpoint
+                        echo "  Using query endpoint as fallback: ${realIngestionEndpoint}"
+                    }
+                }
             } else {
-                echo "⚠ Could not get endpoint from Azure CLI (empty or invalid response), using Terraform output"
-                if (azureQueryEndpoint) {
-                    echo "  Azure CLI returned query endpoint: ${azureQueryEndpoint}"
+                echo "⚠ DCE not found, using workspace endpoint as fallback"
+                if (azureQueryEndpoint && azureQueryEndpoint.length() > 0) {
+                    realIngestionEndpoint = azureQueryEndpoint
+                    echo "  Using query endpoint: ${realIngestionEndpoint}"
                 }
             }
         } catch (Exception e) {
@@ -486,7 +530,7 @@ def loadLoggingOutputs(envNamespace) {
 }
 
 /**
- * Deploy Filebeat to send logs to Logstash (which forwards to Azure Log Analytics)
+ * Deploy Filebeat to send logs to Elasticsearch
  * @param namespace Kubernetes namespace
  * @param environment Environment name (staging/prod)
  * @param logAnalyticsWorkspaceId Azure Log Analytics Workspace ID (for reference, not used directly)
@@ -501,26 +545,26 @@ def deployFilebeat(namespace, environment, logAnalyticsWorkspaceId, logAnalytics
     echo "Environment: ${environment}"
     echo "========================================="
     
-    // Load logging outputs to get Logstash endpoint
+    // Load logging outputs to get Elasticsearch endpoint
     def loggingOutputs = loadLoggingOutputs(namespace)
-    def logstashEndpoint = loggingOutputs.logstashEndpoint
+    def elasticsearchEndpoint = loggingOutputs.elasticsearchEndpoint
     
-    if (!logstashEndpoint || logstashEndpoint.isEmpty()) {
-        error("ERROR: logstash_endpoint is empty. Please run 'terraform apply' in infra/terraform/environments/${namespace} to create Logstash.")
+    if (!elasticsearchEndpoint || elasticsearchEndpoint.isEmpty()) {
+        error("ERROR: elasticsearch_endpoint is empty. Please run 'terraform apply' in infra/terraform/environments/${namespace} to create Elasticsearch.")
     }
     
-    echo "Logstash Endpoint: ${logstashEndpoint}"
-    echo "Note: Filebeat will send logs to Logstash, which forwards them to Azure Log Analytics"
+    echo "Elasticsearch Endpoint: ${elasticsearchEndpoint}"
+    echo "Note: Filebeat will send logs directly to Elasticsearch"
     
     sh """
         chmod +x jenkins/scripts/deploy/deploy-filebeat.sh
         export KCFG="\${KCFG:-}"
-        jenkins/scripts/deploy/deploy-filebeat.sh "${namespace}" "${environment}" "${logstashEndpoint}"
+        jenkins/scripts/deploy/deploy-filebeat.sh "${namespace}" "${environment}" "${elasticsearchEndpoint}"
     """
     
     echo ""
     echo "✓ Filebeat deployed successfully"
-    echo "  Logs are being sent to Logstash (which forwards to Azure Log Analytics)"
+    echo "  Logs are being sent to Elasticsearch"
     
     // Verify deployment
     echo ""

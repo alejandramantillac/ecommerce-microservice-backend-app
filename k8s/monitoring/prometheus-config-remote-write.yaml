@@ -22,9 +22,11 @@ data:
 
     # Remote write a Azure Monitor Workspace
     # Note: Azure Monitor Workspace requires azuread authentication (not oauth2)
-    # The endpoint should be: https://<workspace-name>.<region>.prometheus.monitor.azure.com/api/v1/write
+    # The endpoint should be the DCE endpoint with DCR:
+    # https://<dce-name>.<region>.ingest.monitor.azure.com/dataCollectionRules/<dcr-id>/streams/Microsoft-PrometheusMetrics/api/v1/write?api-version=2021-11-01-preview
+    # The endpoint already includes the full path, so no need to append /api/v1/write
     remote_write:
-      - url: '${AZURE_PROMETHEUS_INGESTION_ENDPOINT}/api/v1/write'
+      - url: '${AZURE_PROMETHEUS_INGESTION_ENDPOINT}'
         write_relabel_configs:
           - source_labels: [__name__]
             regex: '.*'
