@@ -46,6 +46,9 @@ output {
     index => "logstash-%%{+YYYY.MM.dd}"
     ssl => ${var.elasticsearch_public_access ? "true" : "false"}
     ssl_certificate_verification => false
+    # Configuración adicional para evitar timeouts
+    timeout => 60
+    manage_template => false
   }
   
   # Output adicional para debugging (opcional)
@@ -235,7 +238,16 @@ resource "azurerm_container_app" "logstash" {
         value = var.elasticsearch_public_access ? "true" : "false"
       }
       # Variables para configuración de monitoreo de Logstash
-      # Usar el mismo endpoint que ELASTICSEARCH_ENDPOINT
+      # IMPORTANTE: Deshabilitar completamente el monitoreo de X-Pack para evitar que use configuración por defecto
+      # El monitoreo de X-Pack intenta conectarse a Elasticsearch y puede estar usando una URL incorrecta con puerto 9200
+      env {
+        name  = "XPACK_MONITORING_ENABLED"
+        value = "false"
+      }
+      env {
+        name  = "xpack.monitoring.enabled"
+        value = "false"
+      }
       env {
         name  = "XPACK_MONITORING_ELASTICSEARCH_HOSTS"
         value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "https://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
@@ -256,13 +268,21 @@ resource "azurerm_container_app" "logstash" {
         value = local.logstash_pipeline_config
       }
       
-      # Comando de inicio para escribir el pipeline en un archivo
+      # Comando de inicio para escribir el pipeline y configuración de Logstash
       # Logstash busca pipelines en /usr/share/logstash/pipeline/
+      # También necesitamos crear un archivo de configuración de Logstash para deshabilitar el monitoreo
+      # IMPORTANTE: Asegurar que el directorio existe y escribir los archivos antes de iniciar Logstash
       # Usamos base64 para evitar problemas con comillas y saltos de línea
       command = [
         "/bin/bash",
         "-c",
-        "echo ${base64encode(local.logstash_pipeline_config)} | base64 -d > /usr/share/logstash/pipeline/logstash.conf && exec /usr/local/bin/docker-entrypoint"
+        <<-EOC
+          mkdir -p /usr/share/logstash/pipeline /usr/share/logstash/config
+          echo '${base64encode(local.logstash_pipeline_config)}' | base64 -d > /usr/share/logstash/pipeline/logstash.conf
+          # Crear archivo de configuración de Logstash para deshabilitar monitoreo
+          echo 'xpack.monitoring.enabled: false' > /usr/share/logstash/config/logstash.yml
+          exec /usr/local/bin/docker-entrypoint
+        EOC
       ]
       
     }
