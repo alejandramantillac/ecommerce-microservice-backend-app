@@ -486,12 +486,12 @@ def loadLoggingOutputs(envNamespace) {
 }
 
 /**
- * Deploy Filebeat to send logs to Azure Log Analytics
+ * Deploy Filebeat to send logs to Logstash (which forwards to Azure Log Analytics)
  * @param namespace Kubernetes namespace
  * @param environment Environment name (staging/prod)
- * @param logAnalyticsWorkspaceId Azure Log Analytics Workspace ID
- * @param logAnalyticsCustomerId Azure Log Analytics Customer ID (Workspace ID)
- * @param logAnalyticsSharedKey Azure Log Analytics Primary Shared Key
+ * @param logAnalyticsWorkspaceId Azure Log Analytics Workspace ID (for reference, not used directly)
+ * @param logAnalyticsCustomerId Azure Log Analytics Customer ID (for reference, not used directly)
+ * @param logAnalyticsSharedKey Azure Log Analytics Primary Shared Key (for reference, not used directly)
  */
 def deployFilebeat(namespace, environment, logAnalyticsWorkspaceId, logAnalyticsCustomerId, logAnalyticsSharedKey) {
     echo "========================================="
@@ -499,29 +499,28 @@ def deployFilebeat(namespace, environment, logAnalyticsWorkspaceId, logAnalytics
     echo "========================================="
     echo "Namespace: ${namespace}"
     echo "Environment: ${environment}"
-    echo "Log Analytics Workspace ID: ${logAnalyticsWorkspaceId ?: 'EMPTY - Check Terraform outputs'}"
     echo "========================================="
     
-    // Validar que los parámetros no estén vacíos
-    if (!logAnalyticsWorkspaceId || logAnalyticsWorkspaceId.isEmpty()) {
-        error("ERROR: log_analytics_workspace_id is empty. Please run 'terraform apply' in infra/terraform/environments/${namespace} to create the Log Analytics Workspace.")
+    // Load logging outputs to get Logstash endpoint
+    def loggingOutputs = loadLoggingOutputs(namespace)
+    def logstashEndpoint = loggingOutputs.logstashEndpoint
+    
+    if (!logstashEndpoint || logstashEndpoint.isEmpty()) {
+        error("ERROR: logstash_endpoint is empty. Please run 'terraform apply' in infra/terraform/environments/${namespace} to create Logstash.")
     }
-    if (!logAnalyticsCustomerId || logAnalyticsCustomerId.isEmpty()) {
-        error("ERROR: log_analytics_workspace_customer_id is empty. Please run 'terraform apply' in infra/terraform/environments/${namespace} to create the Log Analytics Workspace.")
-    }
-    if (!logAnalyticsSharedKey || logAnalyticsSharedKey.isEmpty()) {
-        error("ERROR: log_analytics_workspace_primary_shared_key is empty. Please run 'terraform apply' in infra/terraform/environments/${namespace} to create the Log Analytics Workspace.")
-    }
+    
+    echo "Logstash Endpoint: ${logstashEndpoint}"
+    echo "Note: Filebeat will send logs to Logstash, which forwards them to Azure Log Analytics"
     
     sh """
         chmod +x jenkins/scripts/deploy/deploy-filebeat.sh
         export KCFG="\${KCFG:-}"
-        jenkins/scripts/deploy/deploy-filebeat.sh "${namespace}" "${environment}" "${logAnalyticsWorkspaceId}" "${logAnalyticsCustomerId}" "${logAnalyticsSharedKey}"
+        jenkins/scripts/deploy/deploy-filebeat.sh "${namespace}" "${environment}" "${logstashEndpoint}"
     """
     
     echo ""
     echo "✓ Filebeat deployed successfully"
-    echo "  Logs are being sent to Azure Log Analytics Workspace"
+    echo "  Logs are being sent to Logstash (which forwards to Azure Log Analytics)"
     
     // Verify deployment
     echo ""

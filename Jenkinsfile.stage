@@ -245,8 +245,9 @@ pipeline {
                     script {
                         def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                         def loggingOutputs = commonFunctions.loadLoggingOutputs(env.K8S_NAMESPACE)
-                        echo "Deploying Filebeat to send logs to Azure Log Analytics..."
-                        echo "Log Analytics Workspace: ${loggingOutputs.logAnalyticsCustomerId}"
+                        echo "Deploying Filebeat to send logs to Logstash..."
+                        echo "Logstash Endpoint: ${loggingOutputs.logstashEndpoint}"
+                        echo "Note: Logstash will forward logs to Azure Log Analytics"
                         commonFunctions.deployFilebeat(
                             env.K8S_NAMESPACE,
                             env.TARGET_ENVIRONMENT,

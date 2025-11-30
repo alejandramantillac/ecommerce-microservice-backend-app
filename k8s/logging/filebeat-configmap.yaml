@@ -36,15 +36,11 @@ data:
             cluster: "ecommerce-microservices"
             environment: "${ENVIRONMENT}"
     
-    output.azure_loganalytics:
-      workspace_id: "${LOG_ANALYTICS_WORKSPACE_ID}"
-      customer_id: "${LOG_ANALYTICS_CUSTOMER_ID}"
-      shared_key: "${LOG_ANALYTICS_SHARED_KEY}"
-      log_type: "Filebeat"
-      fields_under_root: true
-      fields:
-        cluster: "ecommerce-microservices"
-        environment: "${ENVIRONMENT}"
+    output.logstash:
+      hosts: ["${LOGSTASH_ENDPOINT}:5044"]
+      ssl.enabled: false
+      bulk_max_size: 2048
+      timeout: 30s
     
     logging.level: info
     logging.to_files: true
