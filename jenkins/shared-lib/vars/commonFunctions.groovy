@@ -486,10 +486,12 @@ def loadLoggingOutputs(envNamespace) {
 }
 
 /**
- * Deploy Filebeat to send logs to Elasticsearch in Azure Container Apps
+ * Deploy Filebeat to send logs to Azure Log Analytics
  * @param namespace Kubernetes namespace
  * @param environment Environment name (staging/prod)
- * @param elasticsearchEndpoint Elasticsearch endpoint from Azure Container Apps
+ * @param logAnalyticsWorkspaceId Azure Log Analytics Workspace ID
+ * @param logAnalyticsCustomerId Azure Log Analytics Customer ID (Workspace ID)
+ * @param logAnalyticsSharedKey Azure Log Analytics Primary Shared Key
  */
 def deployFilebeat(namespace, environment, logAnalyticsWorkspaceId, logAnalyticsCustomerId, logAnalyticsSharedKey) {
     echo "========================================="

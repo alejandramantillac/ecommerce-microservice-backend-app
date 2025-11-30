@@ -76,30 +76,29 @@ get_dashboard_uid() {
 upload_dashboard() {
     local dashboard_file="$1"
     local dashboard_name=$(basename "$dashboard_file" .json)
-    
+
     echo ""
     echo "Processing dashboard: ${dashboard_name}"
-    
+
     # Read dashboard JSON
     if [ ! -f "$dashboard_file" ]; then
         echo "  ⚠ Warning: File not found: ${dashboard_file}"
         return 1
     fi
-    
-    # Get dashboard UID if available
+
+    # Replace ${ENVIRONMENT} with actual environment variable value in the dashboard JSON
+    local dashboard_json=$(cat "$dashboard_file" | sed "s/\${ENVIRONMENT}/${ENVIRONMENT}/g")
+
+    # Get dashboard UID if available (from original file)
     local dashboard_uid=$(get_dashboard_uid "$dashboard_file")
     local exists=false
-    
+
     # Check if dashboard already exists
     if [ -n "$dashboard_uid" ] && dashboard_exists "$dashboard_uid"; then
         exists=true
         echo "  Dashboard already exists (UID: ${dashboard_uid}), updating..."
     fi
-    
-    # Prepare dashboard payload
-    # Azure Managed Grafana expects the dashboard in a specific format
-    local dashboard_json=$(cat "$dashboard_file")
-    
+
     # Update dashboard metadata for Azure Managed Grafana
     if [ "$JQ_AVAILABLE" = true ]; then
         if [ "$exists" = true ] && [ -n "$dashboard_uid" ]; then

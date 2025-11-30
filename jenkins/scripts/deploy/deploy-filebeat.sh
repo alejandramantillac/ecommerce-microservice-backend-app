@@ -104,8 +104,58 @@ fi
 # Step 2: Deploy ConfigMap
 echo ""
 echo "Step 2: Deploying ConfigMap..."
-if substitute_vars k8s/logging/filebeat-configmap.yaml | kubectl --kubeconfig="$KCFG" apply -f -; then
+
+# Validate that variables are not empty before substitution
+if [ -z "$LOG_ANALYTICS_WORKSPACE_ID" ] || [ -z "$LOG_ANALYTICS_CUSTOMER_ID" ] || [ -z "$LOG_ANALYTICS_SHARED_KEY" ]; then
+    echo "✗ Error: Log Analytics credentials are empty"
+    echo "  LOG_ANALYTICS_WORKSPACE_ID: ${LOG_ANALYTICS_WORKSPACE_ID:-EMPTY}"
+    echo "  LOG_ANALYTICS_CUSTOMER_ID: ${LOG_ANALYTICS_CUSTOMER_ID:-EMPTY}"
+    echo "  LOG_ANALYTICS_SHARED_KEY: ${LOG_ANALYTICS_SHARED_KEY:+SET}${LOG_ANALYTICS_SHARED_KEY:-EMPTY}"
+    exit 1
+fi
+
+# Generate ConfigMap with substituted variables
+CONFIGMAP_YAML=$(substitute_vars k8s/logging/filebeat-configmap.yaml)
+
+# Verify that substitution worked (check for remaining ${} variables)
+if echo "$CONFIGMAP_YAML" | grep -q '\${LOG_ANALYTICS'; then
+    echo "✗ Error: Variable substitution failed. ConfigMap still contains unresolved variables:"
+    echo "$CONFIGMAP_YAML" | grep '\${LOG_ANALYTICS' || true
+    exit 1
+fi
+
+# Apply ConfigMap
+if echo "$CONFIGMAP_YAML" | kubectl --kubeconfig="$KCFG" apply -f -; then
     echo "✓ ConfigMap deployed"
+    
+    # Verify ConfigMap has correct configuration
+    echo ""
+    echo "  Verifying ConfigMap configuration..."
+    sleep 2  # Wait for ConfigMap to be available
+    CONFIGMAP_OUTPUT=$(kubectl --kubeconfig="$KCFG" get configmap filebeat-config -n "${NAMESPACE}" -o jsonpath='{.data.filebeat\.yml}' 2>/dev/null || echo "")
+    if echo "$CONFIGMAP_OUTPUT" | grep -q "output.azure_loganalytics"; then
+        WORKSPACE_ID_CHECK=$(echo "$CONFIGMAP_OUTPUT" | grep "workspace_id:" | sed "s/.*workspace_id: //" | tr -d ' "' || echo "")
+        if [ -n "$WORKSPACE_ID_CHECK" ] && [[ ! "$WORKSPACE_ID_CHECK" == *"\${"* ]]; then
+            echo "✓ ConfigMap correctly configured for Azure Log Analytics"
+            echo "  Workspace ID: ${WORKSPACE_ID_CHECK}"
+        else
+            echo "⚠ Warning: ConfigMap has Azure Log Analytics output but workspace_id may not be substituted"
+        fi
+    else
+        echo "⚠ Warning: ConfigMap may not have Azure Log Analytics output configured"
+        echo "  Current output configuration:"
+        echo "$CONFIGMAP_OUTPUT" | grep -A 5 "output\." || echo "  No output section found"
+    fi
+    
+    # Restart Filebeat pods to pick up new configuration
+    echo ""
+    echo "  Restarting Filebeat pods to apply new configuration..."
+    if kubectl --kubeconfig="$KCFG" get daemonset filebeat -n "${NAMESPACE}" &>/dev/null; then
+        kubectl --kubeconfig="$KCFG" delete pods -n "${NAMESPACE}" -l app=filebeat --grace-period=30 --timeout=60s 2>/dev/null || true
+        echo "✓ Pods restart initiated"
+    else
+        echo "  No existing Filebeat DaemonSet found, will be created in next step"
+    fi
 else
     echo "✗ Failed to deploy ConfigMap"
     exit 1
@@ -204,16 +254,16 @@ echo "Next steps:"
 echo "  1. Verify logs are being collected:"
 echo "     kubectl --kubeconfig=\"\${KCFG}\" logs -n ${NAMESPACE} -l app=filebeat | head -20"
 echo ""
-echo "  2. Verify logs are being sent to Elasticsearch:"
-echo "     Check Elasticsearch endpoint: ${ELASTICSEARCH_ENDPOINT}"
+echo "  2. Verify logs are being sent to Azure Log Analytics:"
+echo "     - Check Filebeat logs for successful connections"
+echo "     - Verify no errors related to Azure Log Analytics"
 echo ""
-echo "  3. Verify logs in Elasticsearch:"
-echo "     curl http://${ELASTICSEARCH_ENDPOINT}/_search?pretty&size=5"
-echo ""
-echo "  4. Verify logs in Kibana:"
-echo "     - Access Kibana UI"
-echo "     - Go to Discover"
-echo "     - Select index pattern: logstash-*"
+echo "  3. Verify logs in Azure Log Analytics:"
+echo "     - Go to Azure Portal > Log Analytics Workspace"
+echo "     - Query: Filebeat_CL | take 10"
 echo "     - Verify logs are visible with Kubernetes metadata"
+echo ""
+echo "  4. Check Filebeat configuration:"
+echo "     kubectl --kubeconfig=\"\${KCFG}\" get configmap filebeat-config -n ${NAMESPACE} -o yaml | grep -A 5 output"
 echo ""
 

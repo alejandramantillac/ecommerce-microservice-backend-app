@@ -19,7 +19,7 @@
   "links": [],
   "panels": [
     {
-      "datasource": "Prometheus",
+      "datasource": "Managed_Prometheus_ecommerce-${ENVIRONMENT}-prometheus-ws",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -99,7 +99,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": "Prometheus",
+      "datasource": "Managed_Prometheus_ecommerce-${ENVIRONMENT}-prometheus-ws",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -174,7 +174,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": "Prometheus",
+      "datasource": "Managed_Prometheus_ecommerce-${ENVIRONMENT}-prometheus-ws",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -254,7 +254,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": "Prometheus",
+      "datasource": "Managed_Prometheus_ecommerce-${ENVIRONMENT}-prometheus-ws",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -303,7 +303,7 @@
       "type": "gauge"
     },
     {
-      "datasource": "Prometheus",
+      "datasource": "Managed_Prometheus_ecommerce-${ENVIRONMENT}-prometheus-ws",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -383,7 +383,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": "Prometheus",
+      "datasource": "Managed_Prometheus_ecommerce-${ENVIRONMENT}-prometheus-ws",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -463,7 +463,7 @@
       "type": "timeseries"
     },
     {
-      "datasource": "Prometheus",
+      "datasource": "Managed_Prometheus_ecommerce-${ENVIRONMENT}-prometheus-ws",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -512,7 +512,7 @@
       "type": "gauge"
     },
     {
-      "datasource": "Prometheus",
+      "datasource": "Managed_Prometheus_ecommerce-${ENVIRONMENT}-prometheus-ws",
       "fieldConfig": {
         "defaults": {
           "color": {
@@ -561,7 +561,7 @@
       "type": "gauge"
     },
     {
-      "datasource": "Prometheus",
+      "datasource": "Managed_Prometheus_ecommerce-${ENVIRONMENT}-prometheus-ws",
       "fieldConfig": {
         "defaults": {
           "color": {
