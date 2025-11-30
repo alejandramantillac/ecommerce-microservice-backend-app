@@ -151,6 +151,21 @@ resource "azurerm_container_app" "elasticsearch" {
         name  = "action.auto_create_index"
         value = "true"
       }
+      # Configurar Elasticsearch para escuchar en todas las interfaces (0.0.0.0)
+      # Esto es necesario para que otros Container Apps puedan conectarse
+      # Por defecto Elasticsearch escucha en 0.0.0.0, pero lo hacemos explícito
+      env {
+        name  = "network.host"
+        value = "0.0.0.0"
+      }
+      env {
+        name  = "http.host"
+        value = "0.0.0.0"
+      }
+      env {
+        name  = "http.port"
+        value = "9200"
+      }
     }
   }
   
@@ -197,31 +212,29 @@ resource "azurerm_container_app" "logstash" {
       memory = var.logstash_memory
       
       # Determinar el endpoint de Elasticsearch
-      # IMPORTANTE: Desde dentro del mismo Container Apps Environment, SIEMPRE usar el endpoint interno
-      # El endpoint interno es más confiable y no requiere SSL ni configuración adicional
-      # Formato: http://app-name.environment-default-domain:port
-      # El FQDN público solo debe usarse para acceso externo, no para comunicación interna entre Container Apps
+      # NOTA: En Azure Container Apps, cuando external_enabled = true, el endpoint público es más confiable
+      # que el endpoint interno para comunicación entre Container Apps
+      # Si elasticsearch_public_access = true, usar el FQDN público (funciona tanto externa como internamente)
+      # Si no, intentar usar el endpoint interno (puede no funcionar sin VNet integration)
       env {
         name  = "ELASTICSEARCH_ENDPOINT"
-        value = "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
+        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "https://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
       }
       env {
         name  = "ELASTICSEARCH_USE_SSL"
-        value = "false"
+        value = var.elasticsearch_public_access ? "true" : "false"
       }
       # Variables para configuración de monitoreo de Logstash
-      # IMPORTANTE: Desde dentro del mismo Container Apps Environment, usar el endpoint interno
-      # El endpoint interno debería funcionar sin problemas de DNS/resolución
-      # Formato: http://app-name.environment-default-domain:port
+      # Usar el mismo endpoint que ELASTICSEARCH_ENDPOINT
       env {
         name  = "XPACK_MONITORING_ELASTICSEARCH_HOSTS"
-        value = "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
+        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "https://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
       }
       # Configurar Java para aceptar certificados SSL cuando se usa HTTPS
       # Azure Container Apps usa certificados válidos, pero Java puede necesitar configuración adicional
       env {
         name  = "LS_JAVA_OPTS"
-        value = ""
+        value = var.elasticsearch_public_access ? "-Djavax.net.ssl.trustStoreType=JKS" : ""
       }
       
       # Configurar pipeline de Logstash usando variables de entorno
