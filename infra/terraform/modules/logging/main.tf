@@ -20,7 +20,15 @@ locals {
   kibana_app_name        = "${local.name_prefix_short}-kibana"
   
   # Configuración del pipeline de Logstash
+  # IMPORTANTE: Azure Container Apps expone servicios públicamente vía HTTPS en puerto 443
+  # El ingress mapea automáticamente HTTPS:443 -> HTTP:9200 internamente
+  # Cuando usamos el FQDN público con HTTPS, NO debemos especificar el puerto 9200
+  # El endpoint debe ser: https://fqdn (sin puerto) para acceso público
+  # O http://app-name.default-domain:9200 para acceso interno
   # Usar %% para escapar el % en la sintaxis de Logstash dentro del heredoc de Terraform
+  # Construir el endpoint correcto: HTTPS sin puerto para público, HTTP con puerto para interno
+  elasticsearch_endpoint_for_pipeline = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "https://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
+  
   logstash_pipeline_config = <<-EOT
 input {
   http {
@@ -34,8 +42,10 @@ filter {
 
 output {
   elasticsearch {
-    hosts => ["http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"]
+    hosts => ["${local.elasticsearch_endpoint_for_pipeline}"]
     index => "logstash-%%{+YYYY.MM.dd}"
+    ssl => ${var.elasticsearch_public_access ? "true" : "false"}
+    ssl_certificate_verification => false
   }
   
   # Output adicional para debugging (opcional)
@@ -237,14 +247,23 @@ resource "azurerm_container_app" "logstash" {
         value = var.elasticsearch_public_access ? "-Djavax.net.ssl.trustStoreType=JKS" : ""
       }
       
-      # Configurar pipeline de Logstash usando variables de entorno
-      # Logstash puede usar variables de entorno en su configuración usando ${VAR_NAME}
-      # Configuramos el pipeline para que use el endpoint de Elasticsearch desde la variable de entorno
-      # Usar el local para la configuración del pipeline
+      # Configurar pipeline de Logstash usando un script de inicio
+      # Logstash no puede usar PIPELINE_CONF_STRING directamente, necesita un archivo
+      # Usamos un comando de inicio que escribe el pipeline en el directorio correcto
+      # El pipeline se genera desde las variables de entorno en tiempo de ejecución
       env {
         name  = "PIPELINE_CONF_STRING"
         value = local.logstash_pipeline_config
       }
+      
+      # Comando de inicio para escribir el pipeline en un archivo
+      # Logstash busca pipelines en /usr/share/logstash/pipeline/
+      # Usamos base64 para evitar problemas con comillas y saltos de línea
+      command = [
+        "/bin/bash",
+        "-c",
+        "echo ${base64encode(local.logstash_pipeline_config)} | base64 -d > /usr/share/logstash/pipeline/logstash.conf && exec /usr/local/bin/docker-entrypoint"
+      ]
       
     }
   }
