@@ -184,9 +184,12 @@ resource "azurerm_container_app" "logstash" {
         value = var.elasticsearch_public_access ? "true" : "false"
       }
       # Variables para configuración de monitoreo de Logstash
+      # IMPORTANTE: Desde dentro del mismo Container Apps Environment, usar el endpoint interno
+      # El endpoint interno debería funcionar sin problemas de DNS/resolución
+      # Formato: http://app-name.environment-default-domain:port
       env {
         name  = "XPACK_MONITORING_ELASTICSEARCH_HOSTS"
-        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "https://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
+        value = "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
       }
       # Configurar Java para aceptar certificados SSL cuando se usa HTTPS
       # Azure Container Apps usa certificados válidos, pero Java puede necesitar configuración adicional
@@ -194,6 +197,7 @@ resource "azurerm_container_app" "logstash" {
         name  = "LS_JAVA_OPTS"
         value = var.elasticsearch_public_access ? "-Djavax.net.ssl.trustStoreType=JKS" : ""
       }
+      
     }
   }
   

@@ -36,14 +36,15 @@ data:
             cluster: "ecommerce-microservices"
             environment: "${ENVIRONMENT}"
     
+    setup.template.name: "filebeat"
+    setup.template.pattern: "filebeat-*"
+    setup.template.settings:
+      index.number_of_shards: 1
+      index.codec: best_compression
+    
     output.elasticsearch:
       hosts: ["${ELASTICSEARCH_ENDPOINT}"]
       index: "filebeat-%{+yyyy.MM.dd}"
-      template.name: "filebeat"
-      template.pattern: "filebeat-*"
-      template.settings:
-        index.number_of_shards: 1
-        index.codec: best_compression
     
     logging.level: info
     logging.to_files: true

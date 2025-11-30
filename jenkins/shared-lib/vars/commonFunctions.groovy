@@ -371,6 +371,26 @@ def getMonitoringOutputs(envNamespace) {
         echo "  Using Terraform output as fallback"
     }
     
+    // Validar que el endpoint de ingestion tenga el query parameter completo
+    if (realIngestionEndpoint && realIngestionEndpoint.contains("dataCollectionRules") && !realIngestionEndpoint.contains("api-version=2021-11-01-preview")) {
+        echo "⚠ WARNING: Ingestion endpoint missing api-version query parameter, adding it..."
+        if (realIngestionEndpoint.contains("?")) {
+            realIngestionEndpoint = "${realIngestionEndpoint}&api-version=2021-11-01-preview"
+        } else {
+            realIngestionEndpoint = "${realIngestionEndpoint}?api-version=2021-11-01-preview"
+        }
+    }
+    
+    // Validar formato del endpoint antes de retornar
+    if (realIngestionEndpoint && realIngestionEndpoint.contains("dataCollectionRules")) {
+        if (!realIngestionEndpoint.contains("api-version=2021-11-01-preview")) {
+            echo "⚠ ERROR: Ingestion endpoint is missing required query parameter: api-version=2021-11-01-preview"
+            echo "  Endpoint: ${realIngestionEndpoint}"
+        } else {
+            echo "✓ Ingestion endpoint validated: contains required query parameter"
+        }
+    }
+    
     return [
         prometheusIngestionEndpoint: realIngestionEndpoint,
         prometheusQueryEndpoint: realQueryEndpoint,
@@ -1491,26 +1511,68 @@ def verifyAndFixDcrStream(namespace) {
     sh """
         cd infra/terraform/environments/${envDir}
         terraform refresh -var-file=${envDir}.tfvars || true
-        terraform apply -var-file=${envDir}.tfvars -auto-approve || true
+        terraform apply -var-file=${envDir}.tfvars -auto-approve -target=module.monitoring.azurerm_monitor_data_collection_rule.prometheus || {
+            echo "Target apply failed, trying full apply..."
+            terraform apply -var-file=${envDir}.tfvars -auto-approve || true
+        }
     """
     
-    // Verify again after apply
-    def hasStreamAfter = sh(
+    // Wait for Azure to propagate changes (DCR updates can take time)
+    echo "Waiting 15 seconds for Azure to propagate DCR changes..."
+    sleep(15)
+    
+    // Verify again after apply with retries
+    def hasStreamAfter = ""
+    def maxRetries = 3
+    def retryCount = 0
+    
+    while (retryCount < maxRetries && (!hasStreamAfter || hasStreamAfter.isEmpty())) {
+        if (retryCount > 0) {
+            echo "Retry ${retryCount}/${maxRetries}: Waiting 10 more seconds..."
+            sleep(10)
+        }
+        
+        hasStreamAfter = sh(
+            script: """
+                az monitor data-collection rule show \
+                    --name "${dcrName}" \
+                    --resource-group "${resourceGroupName}" \
+                    --query "dataSources.prometheusForwarder[0].streams[?@ == 'Microsoft-PrometheusMetrics']" \
+                    -o tsv 2>/dev/null || echo ""
+            """,
+            returnStdout: true
+        ).trim()
+        
+        retryCount++
+    }
+    
+    // Also verify dataFlows
+    def hasStreamInFlowAfter = sh(
         script: """
             az monitor data-collection rule show \
                 --name "${dcrName}" \
                 --resource-group "${resourceGroupName}" \
-                --query "dataSources.prometheusForwarder[0].streams[?@ == 'Microsoft-PrometheusMetrics']" \
+                --query "dataFlows[0].streams[?@ == 'Microsoft-PrometheusMetrics']" \
                 -o tsv 2>/dev/null || echo ""
         """,
         returnStdout: true
     ).trim()
     
-    if (hasStreamAfter) {
+    if (hasStreamAfter && hasStreamInFlowAfter) {
         echo "✓ DCR updated successfully with Microsoft-PrometheusMetrics stream"
+        echo "  - Stream configured in dataSources: ✓"
+        echo "  - Stream configured in dataFlows: ✓"
     } else {
         echo "⚠ DCR still missing stream after terraform apply"
+        if (!hasStreamAfter) {
+            echo "  - Missing in dataSources"
+        }
+        if (!hasStreamInFlowAfter) {
+            echo "  - Missing in dataFlows"
+        }
         echo "  This may require manual intervention or DCR recreation"
+        echo "  Waiting additional 30 seconds for Azure propagation..."
+        sleep(30)
     }
     
     echo "========================================="

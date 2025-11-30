@@ -90,7 +90,7 @@ export AZURE_CLIENT_SECRET
 substitute_vars() {
     local file="$1"
     
-    # Preferir envsubst si está disponible (más confiable para URLs)
+    # Preferir envsubst si está disponible (más confiable para URLs con query parameters)
     if command -v envsubst &> /dev/null; then
         # Exportar variables para envsubst
         # IMPORTANTE: La variable en el template es AZURE_PROMETHEUS_INGESTION_ENDPOINT
@@ -99,24 +99,53 @@ substitute_vars() {
         # Esto asegura que solo estas variables se sustituyan, preservando el resto del contenido
         envsubst '$NAMESPACE $ENVIRONMENT $AZURE_PROMETHEUS_INGESTION_ENDPOINT $AZURE_CLIENT_ID $AZURE_TENANT_ID $AZURE_CLIENT_SECRET' < "$file"
     else
-        # Fallback a sed con mejor manejo de URLs
-        # Usar perl para reemplazo más robusto si está disponible
-        # Escapar caracteres especiales en la URL para evitar problemas con sed/perl
-        if command -v perl &> /dev/null; then
-            # Escapar caracteres especiales en la URL para perl, pero NO escapar = (necesario para query parameters)
-            # Escapar solo caracteres que realmente causan problemas en regex, no el =
-            ESCAPED_ENDPOINT=$(printf '%s\n' "$AZURE_INGESTION_ENDPOINT" | sed 's/[[\.*^$()+?{|]/\\&/g' | sed 's/\\=/=/g')
-            ESCAPED_CLIENT_ID=$(printf '%s\n' "$AZURE_CLIENT_ID" | sed 's/[[\.*^$()+?{|]/\\&/g')
-            ESCAPED_TENANT_ID=$(printf '%s\n' "$AZURE_TENANT_ID" | sed 's/[[\.*^$()+?{|]/\\&/g')
-            ESCAPED_CLIENT_SECRET=$(printf '%s\n' "$AZURE_CLIENT_SECRET" | sed 's/[[\.*^$()+?{|]/\\&/g')
+        # Fallback a Python si está disponible (mejor para URLs complejas)
+        if command -v python3 &> /dev/null; then
+            python3 <<PYTHON_SCRIPT
+import sys
+import os
+
+with open('$file', 'r') as f:
+    content = f.read()
+
+# Reemplazar variables de forma segura, preservando query parameters
+# Usar os.environ para evitar problemas con caracteres especiales
+namespace = '${NAMESPACE}'
+environment = '${ENVIRONMENT}'
+endpoint = '${AZURE_INGESTION_ENDPOINT}'
+client_id = '${AZURE_CLIENT_ID}'
+tenant_id = '${AZURE_TENANT_ID}'
+client_secret = '${AZURE_CLIENT_SECRET}'
+
+replacements = {
+    '\${NAMESPACE}': namespace,
+    '\${ENVIRONMENT}': environment,
+    '\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}': endpoint,
+    '\${AZURE_CLIENT_ID}': client_id,
+    '\${AZURE_TENANT_ID}': tenant_id,
+    '\${AZURE_CLIENT_SECRET}': client_secret
+}
+
+for pattern, replacement in replacements.items():
+    content = content.replace(pattern, replacement)
+
+sys.stdout.write(content)
+PYTHON_SCRIPT
+        elif command -v perl &> /dev/null; then
+            # Usar perl con escape adecuado para query parameters
+            # Escapar solo caracteres que causan problemas en regex, preservar = y ?
+            ESCAPED_ENDPOINT=$(printf '%s\n' "$AZURE_INGESTION_ENDPOINT" | perl -pe 's/([\\[\\]\.\*^\$\(\)\+\?\{\|\/])/\\$1/g')
+            ESCAPED_CLIENT_ID=$(printf '%s\n' "$AZURE_CLIENT_ID" | perl -pe 's/([\\[\\]\.\*^\$\(\)\+\?\{\|\/])/\\$1/g')
+            ESCAPED_TENANT_ID=$(printf '%s\n' "$AZURE_TENANT_ID" | perl -pe 's/([\\[\\]\.\*^\$\(\)\+\?\{\|\/])/\\$1/g')
+            ESCAPED_CLIENT_SECRET=$(printf '%s\n' "$AZURE_CLIENT_SECRET" | perl -pe 's/([\\[\\]\.\*^\$\(\)\+\?\{\|\/])/\\$1/g')
             perl -pe "s|\\\$\{NAMESPACE\}|${NAMESPACE}|g; s|\\\$\{ENVIRONMENT\}|${ENVIRONMENT}|g; s|\\\$\{AZURE_PROMETHEUS_INGESTION_ENDPOINT\}|${ESCAPED_ENDPOINT}|g; s|\\\$\{AZURE_CLIENT_ID\}|${ESCAPED_CLIENT_ID}|g; s|\\\$\{AZURE_TENANT_ID\}|${ESCAPED_TENANT_ID}|g; s|\\\$\{AZURE_CLIENT_SECRET\}|${ESCAPED_CLIENT_SECRET}|g" "$file"
         else
-            # Usar sed con escape de caracteres especiales
-            # Escapar caracteres especiales en la URL, pero NO escapar = (necesario para query parameters)
-            ESCAPED_ENDPOINT=$(printf '%s\n' "$AZURE_INGESTION_ENDPOINT" | sed 's/[[\.*^$()+?{|]/\\&/g' | sed 's/\\=/=/g')
-            ESCAPED_CLIENT_ID=$(printf '%s\n' "$AZURE_CLIENT_ID" | sed 's/[[\.*^$()+?{|]/\\&/g')
-            ESCAPED_TENANT_ID=$(printf '%s\n' "$AZURE_TENANT_ID" | sed 's/[[\.*^$()+?{|]/\\&/g')
-            ESCAPED_CLIENT_SECRET=$(printf '%s\n' "$AZURE_CLIENT_SECRET" | sed 's/[[\.*^$()+?{|]/\\&/g')
+            # Usar sed como último recurso - requiere escape cuidadoso
+            # Escapar caracteres especiales pero preservar = y ? para query parameters
+            ESCAPED_ENDPOINT=$(printf '%s\n' "$AZURE_INGESTION_ENDPOINT" | sed 's/[[\.*^$()+{|]/\\&/g' | sed 's|/|\\/|g')
+            ESCAPED_CLIENT_ID=$(printf '%s\n' "$AZURE_CLIENT_ID" | sed 's/[[\.*^$()+{|]/\\&/g' | sed 's|/|\\/|g')
+            ESCAPED_TENANT_ID=$(printf '%s\n' "$AZURE_TENANT_ID" | sed 's/[[\.*^$()+{|]/\\&/g' | sed 's|/|\\/|g')
+            ESCAPED_CLIENT_SECRET=$(printf '%s\n' "$AZURE_CLIENT_SECRET" | sed 's/[[\.*^$()+{|]/\\&/g' | sed 's|/|\\/|g')
             sed -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
                 -e "s|\${ENVIRONMENT}|${ENVIRONMENT}|g" \
                 -e "s|\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}|${ESCAPED_ENDPOINT}|g" \
