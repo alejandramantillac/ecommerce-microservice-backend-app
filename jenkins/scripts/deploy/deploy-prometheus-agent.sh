@@ -93,22 +93,35 @@ substitute_vars() {
     # Preferir envsubst si está disponible (más confiable para URLs)
     if command -v envsubst &> /dev/null; then
         # Exportar variables para envsubst (necesita nombres sin AZURE_ prefix para el template)
+        # IMPORTANTE: No escapar el = en query parameters, envsubst maneja URLs correctamente
         export AZURE_PROMETHEUS_INGESTION_ENDPOINT="$AZURE_INGESTION_ENDPOINT"
-        envsubst < "$file"
+        # Usar envsubst con lista explícita de variables para evitar problemas
+        envsubst '$NAMESPACE $ENVIRONMENT $AZURE_PROMETHEUS_INGESTION_ENDPOINT $AZURE_CLIENT_ID $AZURE_TENANT_ID $AZURE_CLIENT_SECRET' < "$file"
     else
         # Fallback a sed con mejor manejo de URLs
         # Usar perl para reemplazo más robusto si está disponible
+        # Escapar caracteres especiales en la URL para evitar problemas con sed/perl
         if command -v perl &> /dev/null; then
-            perl -pe "s|\\\$\{NAMESPACE\}|${NAMESPACE}|g; s|\\\$\{ENVIRONMENT\}|${ENVIRONMENT}|g; s|\\\$\{AZURE_PROMETHEUS_INGESTION_ENDPOINT\}|${AZURE_INGESTION_ENDPOINT}|g; s|\\\$\{AZURE_CLIENT_ID\}|${AZURE_CLIENT_ID}|g; s|\\\$\{AZURE_TENANT_ID\}|${AZURE_TENANT_ID}|g; s|\\\$\{AZURE_CLIENT_SECRET\}|${AZURE_CLIENT_SECRET}|g" "$file"
+            # Escapar caracteres especiales en la URL para perl, pero NO escapar = (necesario para query parameters)
+            # Escapar solo caracteres que realmente causan problemas en regex, no el =
+            ESCAPED_ENDPOINT=$(printf '%s\n' "$AZURE_INGESTION_ENDPOINT" | sed 's/[[\.*^$()+?{|]/\\&/g' | sed 's/\\=/=/g')
+            ESCAPED_CLIENT_ID=$(printf '%s\n' "$AZURE_CLIENT_ID" | sed 's/[[\.*^$()+?{|]/\\&/g')
+            ESCAPED_TENANT_ID=$(printf '%s\n' "$AZURE_TENANT_ID" | sed 's/[[\.*^$()+?{|]/\\&/g')
+            ESCAPED_CLIENT_SECRET=$(printf '%s\n' "$AZURE_CLIENT_SECRET" | sed 's/[[\.*^$()+?{|]/\\&/g')
+            perl -pe "s|\\\$\{NAMESPACE\}|${NAMESPACE}|g; s|\\\$\{ENVIRONMENT\}|${ENVIRONMENT}|g; s|\\\$\{AZURE_PROMETHEUS_INGESTION_ENDPOINT\}|${ESCAPED_ENDPOINT}|g; s|\\\$\{AZURE_CLIENT_ID\}|${ESCAPED_CLIENT_ID}|g; s|\\\$\{AZURE_TENANT_ID\}|${ESCAPED_TENANT_ID}|g; s|\\\$\{AZURE_CLIENT_SECRET\}|${ESCAPED_CLIENT_SECRET}|g" "$file"
         else
-            # Usar sed con escape mínimo (solo para caracteres realmente problemáticos)
-            # No escapar / ya que usamos | como delimitador
+            # Usar sed con escape de caracteres especiales
+            # Escapar caracteres especiales en la URL, pero NO escapar = (necesario para query parameters)
+            ESCAPED_ENDPOINT=$(printf '%s\n' "$AZURE_INGESTION_ENDPOINT" | sed 's/[[\.*^$()+?{|]/\\&/g' | sed 's/\\=/=/g')
+            ESCAPED_CLIENT_ID=$(printf '%s\n' "$AZURE_CLIENT_ID" | sed 's/[[\.*^$()+?{|]/\\&/g')
+            ESCAPED_TENANT_ID=$(printf '%s\n' "$AZURE_TENANT_ID" | sed 's/[[\.*^$()+?{|]/\\&/g')
+            ESCAPED_CLIENT_SECRET=$(printf '%s\n' "$AZURE_CLIENT_SECRET" | sed 's/[[\.*^$()+?{|]/\\&/g')
             sed -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
                 -e "s|\${ENVIRONMENT}|${ENVIRONMENT}|g" \
-                -e "s|\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}|${AZURE_INGESTION_ENDPOINT}|g" \
-                -e "s|\${AZURE_CLIENT_ID}|${AZURE_CLIENT_ID}|g" \
-                -e "s|\${AZURE_TENANT_ID}|${AZURE_TENANT_ID}|g" \
-                -e "s|\${AZURE_CLIENT_SECRET}|${AZURE_CLIENT_SECRET}|g" \
+                -e "s|\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}|${ESCAPED_ENDPOINT}|g" \
+                -e "s|\${AZURE_CLIENT_ID}|${ESCAPED_CLIENT_ID}|g" \
+                -e "s|\${AZURE_TENANT_ID}|${ESCAPED_TENANT_ID}|g" \
+                -e "s|\${AZURE_CLIENT_SECRET}|${ESCAPED_CLIENT_SECRET}|g" \
                 "$file"
         fi
     fi
@@ -142,6 +155,18 @@ if grep -q '\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}' "$TEMP_CONFIG"; then
     exit 1
 fi
 
+# Verificar que el query parameter completo está presente (si el endpoint lo incluye)
+if [[ "$AZURE_INGESTION_ENDPOINT" == *"api-version=2021-11-01-preview"* ]]; then
+    if ! grep -q "api-version=2021-11-01-preview" "$TEMP_CONFIG"; then
+        echo "ERROR: Query parameter 'api-version=2021-11-01-preview' was truncated during substitution"
+        echo "Original endpoint: ${AZURE_INGESTION_ENDPOINT}"
+        echo "Debug: Showing remote_write section:"
+        grep -A 1 "remote_write:" "$TEMP_CONFIG" | grep "url:" || true
+        rm -f "$TEMP_CONFIG"
+        exit 1
+    fi
+fi
+
 # Verificar que la URL contiene https://
 if ! grep -q "url: 'https://" "$TEMP_CONFIG"; then
     echo "ERROR: URL in remote_write does not start with https://"
@@ -172,10 +197,22 @@ if kubectl --kubeconfig="$KCFG" apply -f "$TEMP_CONFIG"; then
     echo "Verifying ConfigMap was updated correctly..."
     ACTUAL_URL=$(kubectl --kubeconfig="$KCFG" get configmap prometheus-config -n "${NAMESPACE}" -o jsonpath='{.data.prometheus\.yml}' | grep -A 1 "remote_write:" | grep "url:" | sed "s/.*url: '\(.*\)'.*/\1/" || echo "")
     if [[ "$ACTUAL_URL" == *"https://"* ]]; then
-        echo "✓ ConfigMap verified: URL is correct (${ACTUAL_URL})"
+        echo "✓ ConfigMap verified: URL starts with https://"
+        # Verificar que el query parameter completo está presente
+        if [[ "$ACTUAL_URL" == *"api-version=2021-11-01-preview"* ]]; then
+            echo "✓ Query parameter completo presente"
+        elif [[ "$ACTUAL_URL" == *"api-version"* ]]; then
+            echo "⚠ WARNING: Query parameter está truncado (falta el valor)"
+            echo "  Actual: ${ACTUAL_URL}"
+            echo "  Esperado: ${AZURE_INGESTION_ENDPOINT}"
+            echo "  Diferencia: Falta '=2021-11-01-preview'"
+        else
+            echo "⚠ Warning: No se encontró query parameter api-version"
+        fi
+        echo "  URL completa: ${ACTUAL_URL}"
     else
         echo "⚠ Warning: ConfigMap URL may not be correct. Actual: ${ACTUAL_URL}"
-        echo "Expected: ${AZURE_INGESTION_ENDPOINT}/api/v1/write"
+        echo "Expected: ${AZURE_INGESTION_ENDPOINT}"
     fi
 else
     echo "✗ Failed to deploy ConfigMap"

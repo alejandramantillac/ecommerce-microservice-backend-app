@@ -312,24 +312,40 @@ def getMonitoringOutputs(envNamespace) {
                     returnStdout: true
                 ).trim()
                 
-                // Get DCR ID
-                def dcrId = sh(
+                // Get DCR name first
+                def dcrName = sh(
                     script: """
                         az monitor data-collection rule list \
                             --resource-group "${resourceGroupName}" \
-                            --query "[?contains(name, 'prom-dcr')].id" \
+                            --query "[?contains(name, 'prom-dcr')].name" \
                             -o tsv 2>/dev/null | head -1 || echo ""
                     """,
                     returnStdout: true
                 ).trim()
                 
-                if (dceEndpoint && !dceEndpoint.isEmpty() && dcrId && !dcrId.isEmpty()) {
-                    // Extract short DCR ID (just the name, not the full path)
-                    def dcrIdShort = dcrId.replaceAll(/.*\/dataCollectionRules\//, '')
-                    
-                    // Construct the correct remote_write endpoint
-                    realIngestionEndpoint = "${dceEndpoint}/dataCollectionRules/${dcrIdShort}/streams/Microsoft-PrometheusMetrics/api/v1/write?api-version=2021-11-01-preview"
+                // Get DCR immutable ID (required by Azure, not the name)
+                def dcrImmutableId = ""
+                if (dcrName && !dcrName.isEmpty()) {
+                    dcrImmutableId = sh(
+                        script: """
+                            az monitor data-collection rule show \
+                                --name "${dcrName}" \
+                                --resource-group "${resourceGroupName}" \
+                                --query "immutableId" \
+                                -o tsv 2>/dev/null || echo ""
+                        """,
+                        returnStdout: true
+                    ).trim()
+                }
+                
+                if (dceEndpoint && !dceEndpoint.isEmpty() && dcrImmutableId && !dcrImmutableId.isEmpty()) {
+                    // Azure requires the immutable ID (not the name) in the path
+                    // Format: {DCE_ENDPOINT}/dataCollectionRules/{DCR_IMMUTABLE_ID}/streams/Microsoft-PrometheusMetrics/api/v1/write?api-version=2021-11-01-preview
+                    realIngestionEndpoint = "${dceEndpoint}/dataCollectionRules/${dcrImmutableId}/streams/Microsoft-PrometheusMetrics/api/v1/write?api-version=2021-11-01-preview"
                     echo "✓ Constructed Prometheus ingestion endpoint using DCE/DCR: ${realIngestionEndpoint}"
+                    echo "  DCE Endpoint: ${dceEndpoint}"
+                    echo "  DCR Name: ${dcrName}"
+                    echo "  DCR Immutable ID: ${dcrImmutableId}"
                 } else {
                     echo "⚠ DCE endpoint or DCR ID not found, falling back to workspace endpoint"
                     if (azureQueryEndpoint && azureQueryEndpoint.length() > 0) {

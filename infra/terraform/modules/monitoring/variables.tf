@@ -54,3 +54,9 @@ variable "tags" {
   default     = {}
 }
 
+variable "service_principal_client_id" {
+  description = "Client ID de la Service Principal que usará Prometheus para enviar métricas al DCR"
+  type        = string
+  default     = ""
+}
+

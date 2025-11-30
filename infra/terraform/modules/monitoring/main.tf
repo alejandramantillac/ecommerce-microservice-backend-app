@@ -130,6 +130,14 @@ resource "azurerm_monitor_data_collection_rule_association" "aks" {
   description             = "Association for Prometheus metrics collection from AKS"
 }
 
+# Role assignment para que la Service Principal pueda enviar métricas al DCR
+# Esto es necesario para que Prometheus pueda hacer remote_write al DCE/DCR
+# NOTA: Se requiere el principal_id (object_id) de la Service Principal, no el client_id
+# Para obtener el principal_id desde el client_id, usar:
+# az ad sp show --id <client-id> --query id -o tsv
+# Por ahora, este role assignment se debe hacer manualmente o mediante script
+# ya que Terraform necesita el object_id (principal_id), no el client_id (appId)
+
 # Azure Monitor Action Group para alertas
 resource "azurerm_monitor_action_group" "alerts" {
   name                = "${local.name_prefix_short}-alerts"

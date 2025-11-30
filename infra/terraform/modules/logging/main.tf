@@ -145,6 +145,12 @@ resource "azurerm_container_app" "elasticsearch" {
 }
 
 # Container App: Logstash
+# NOTA: Logstash necesita acceso a Elasticsearch. Si elasticsearch_public_access = false,
+# Logstash no podrá conectarse desde Azure Container Apps debido a limitaciones de red.
+# Soluciones:
+# 1. Habilitar elasticsearch_public_access = true
+# 2. Configurar VNet integration para Container Apps
+# 3. Usar Filebeat directamente a Elasticsearch (recomendado si no necesitas procesamiento de Logstash)
 resource "azurerm_container_app" "logstash" {
   name                         = local.logstash_app_name
   container_app_environment_id  = azurerm_container_app_environment.elk.id
@@ -164,13 +170,15 @@ resource "azurerm_container_app" "logstash" {
       cpu    = var.logstash_cpu
       memory = var.logstash_memory
       
+      # Usar endpoint público si está disponible (requiere elasticsearch_public_access = true)
+      # Si no está disponible, intentar usar endpoint interno (puede no funcionar sin VNet integration)
       env {
         name  = "XPACK_MONITORING_ELASTICSEARCH_HOSTS"
-        value = "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
+        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "http://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
       }
       env {
         name  = "ELASTICSEARCH_HOSTS"
-        value = "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
+        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "http://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
       }
     }
   }
