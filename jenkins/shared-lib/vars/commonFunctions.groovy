@@ -1412,4 +1412,108 @@ def collectOwnerMentions(changedServices) {
     return mentions
 }
 
+/**
+ * Verify and fix DCR stream configuration
+ * Ensures the DCR has Microsoft-PrometheusMetrics stream configured
+ * @param namespace Kubernetes namespace (staging/prod)
+ */
+def verifyAndFixDcrStream(namespace) {
+    echo "========================================="
+    echo "Verifying DCR Stream Configuration"
+    echo "========================================="
+    
+    def resourceGroupName = getTerraformOutput(namespace, 'resource_group_name')
+    if (!resourceGroupName || resourceGroupName.isEmpty()) {
+        error("Cannot verify DCR stream: resource_group_name not found in Terraform outputs")
+    }
+    
+    // Get DCR name
+    def dcrName = sh(
+        script: """
+            az monitor data-collection rule list \
+                --resource-group "${resourceGroupName}" \
+                --query "[?contains(name, 'prom-dcr')].name" \
+                -o tsv 2>/dev/null | head -1 || echo ""
+        """,
+        returnStdout: true
+    ).trim()
+    
+    if (!dcrName || dcrName.isEmpty()) {
+        echo "⚠ DCR not found, will be created by Terraform"
+        return
+    }
+    
+    echo "DCR: ${dcrName}"
+    
+    // Check if stream is configured in dataSources
+    def hasStreamInDS = sh(
+        script: """
+            az monitor data-collection rule show \
+                --name "${dcrName}" \
+                --resource-group "${resourceGroupName}" \
+                --query "dataSources.prometheusForwarder[0].streams[?@ == 'Microsoft-PrometheusMetrics']" \
+                -o tsv 2>/dev/null || echo ""
+        """,
+        returnStdout: true
+    ).trim()
+    
+    // Check if stream is configured in dataFlows
+    def hasStreamInFlow = sh(
+        script: """
+            az monitor data-collection rule show \
+                --name "${dcrName}" \
+                --resource-group "${resourceGroupName}" \
+                --query "dataFlows[0].streams[?@ == 'Microsoft-PrometheusMetrics']" \
+                -o tsv 2>/dev/null || echo ""
+        """,
+        returnStdout: true
+    ).trim()
+    
+    if (hasStreamInDS && hasStreamInFlow) {
+        echo "✓ DCR has Microsoft-PrometheusMetrics stream configured correctly"
+        return
+    }
+    
+    echo "⚠ DCR is missing Microsoft-PrometheusMetrics stream"
+    if (!hasStreamInDS) {
+        echo "  - Missing in dataSources"
+    }
+    if (!hasStreamInFlow) {
+        echo "  - Missing in dataFlows"
+    }
+    
+    echo ""
+    echo "Forcing Terraform to update the DCR..."
+    echo "This will ensure the DCR has the correct stream configuration"
+    
+    // Force Terraform to refresh and apply
+    def envDir = namespace == 'staging' ? 'staging' : 'prod'
+    sh """
+        cd infra/terraform/environments/${envDir}
+        terraform refresh -var-file=${envDir}.tfvars || true
+        terraform apply -var-file=${envDir}.tfvars -auto-approve || true
+    """
+    
+    // Verify again after apply
+    def hasStreamAfter = sh(
+        script: """
+            az monitor data-collection rule show \
+                --name "${dcrName}" \
+                --resource-group "${resourceGroupName}" \
+                --query "dataSources.prometheusForwarder[0].streams[?@ == 'Microsoft-PrometheusMetrics']" \
+                -o tsv 2>/dev/null || echo ""
+        """,
+        returnStdout: true
+    ).trim()
+    
+    if (hasStreamAfter) {
+        echo "✓ DCR updated successfully with Microsoft-PrometheusMetrics stream"
+    } else {
+        echo "⚠ DCR still missing stream after terraform apply"
+        echo "  This may require manual intervention or DCR recreation"
+    }
+    
+    echo "========================================="
+}
+
 return this

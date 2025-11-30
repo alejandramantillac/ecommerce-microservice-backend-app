@@ -92,10 +92,11 @@ substitute_vars() {
     
     # Preferir envsubst si está disponible (más confiable para URLs)
     if command -v envsubst &> /dev/null; then
-        # Exportar variables para envsubst (necesita nombres sin AZURE_ prefix para el template)
-        # IMPORTANTE: No escapar el = en query parameters, envsubst maneja URLs correctamente
+        # Exportar variables para envsubst
+        # IMPORTANTE: La variable en el template es AZURE_PROMETHEUS_INGESTION_ENDPOINT
         export AZURE_PROMETHEUS_INGESTION_ENDPOINT="$AZURE_INGESTION_ENDPOINT"
-        # Usar envsubst con lista explícita de variables para evitar problemas
+        # Usar envsubst con lista explícita de variables (entre comillas simples para evitar expansión)
+        # Esto asegura que solo estas variables se sustituyan, preservando el resto del contenido
         envsubst '$NAMESPACE $ENVIRONMENT $AZURE_PROMETHEUS_INGESTION_ENDPOINT $AZURE_CLIENT_ID $AZURE_TENANT_ID $AZURE_CLIENT_SECRET' < "$file"
     else
         # Fallback a sed con mejor manejo de URLs
@@ -145,7 +146,7 @@ echo "Step 2: Deploying Prometheus ConfigMap with remote_write..."
 # Verificar que la sustitución funciona correctamente
 TEMP_CONFIG=$(mktemp)
 substitute_vars k8s/monitoring/prometheus-config-remote-write.yaml > "$TEMP_CONFIG"
-# Verificar que la URL fue sustituida (no debe contener ${AZURE_PROMETHEUS_INGESTION_ENDPOINT})
+# Verificar que la URL fue sustituida correctamente
 if grep -q '\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}' "$TEMP_CONFIG"; then
     echo "ERROR: Variable substitution failed. AZURE_PROMETHEUS_INGESTION_ENDPOINT not replaced in ConfigMap"
     echo "Endpoint value: ${AZURE_INGESTION_ENDPOINT}"
@@ -153,6 +154,14 @@ if grep -q '\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}' "$TEMP_CONFIG"; then
     grep -A 5 "remote_write" "$TEMP_CONFIG" || true
     rm -f "$TEMP_CONFIG"
     exit 1
+fi
+
+# Verificar que la URL contiene el query parameter api-version
+if ! grep -q "api-version=2021-11-01-preview" "$TEMP_CONFIG"; then
+    echo "WARNING: URL may be truncated. Expected api-version=2021-11-01-preview in endpoint"
+    echo "Debug: Showing remote_write URL:"
+    grep -A 2 "url:" "$TEMP_CONFIG" | head -3 || true
+    echo "Original endpoint: ${AZURE_INGESTION_ENDPOINT}"
 fi
 
 # Verificar que el query parameter completo está presente (si el endpoint lo incluye)

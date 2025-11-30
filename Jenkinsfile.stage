@@ -158,6 +158,10 @@ pipeline {
                 script {
                     def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                     echo "Retrieving monitoring endpoints from Terraform outputs..."
+                    
+                    // Verify and fix DCR stream configuration before getting endpoints
+                    commonFunctions.verifyAndFixDcrStream(env.K8S_NAMESPACE)
+                    
                     def monitoringOutputs = commonFunctions.getMonitoringOutputs(env.K8S_NAMESPACE)
                     def outputFile = commonFunctions.saveMonitoringOutputs(env.K8S_NAMESPACE, monitoringOutputs)
                     stash name: 'monitoring-outputs', includes: ".monitoring-${env.K8S_NAMESPACE}.env"

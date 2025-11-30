@@ -170,15 +170,29 @@ resource "azurerm_container_app" "logstash" {
       cpu    = var.logstash_cpu
       memory = var.logstash_memory
       
-      # Usar endpoint público si está disponible (requiere elasticsearch_public_access = true)
+      # Determinar el endpoint de Elasticsearch
+      # Si elasticsearch_public_access = true, usar HTTPS con el FQDN público
+      # Azure Container Apps expone servicios públicamente vía HTTPS en puerto 443
+      # El ingress mapea automáticamente HTTPS:443 -> HTTP:9200 internamente
       # Si no está disponible, intentar usar endpoint interno (puede no funcionar sin VNet integration)
       env {
-        name  = "XPACK_MONITORING_ELASTICSEARCH_HOSTS"
-        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "http://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
+        name  = "ELASTICSEARCH_ENDPOINT"
+        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "https://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
       }
       env {
-        name  = "ELASTICSEARCH_HOSTS"
-        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "http://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
+        name  = "ELASTICSEARCH_USE_SSL"
+        value = var.elasticsearch_public_access ? "true" : "false"
+      }
+      # Variables para configuración de monitoreo de Logstash
+      env {
+        name  = "XPACK_MONITORING_ELASTICSEARCH_HOSTS"
+        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "https://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
+      }
+      # Configurar Java para aceptar certificados SSL cuando se usa HTTPS
+      # Azure Container Apps usa certificados válidos, pero Java puede necesitar configuración adicional
+      env {
+        name  = "LS_JAVA_OPTS"
+        value = var.elasticsearch_public_access ? "-Djavax.net.ssl.trustStoreType=JKS" : ""
       }
     }
   }
@@ -206,11 +220,13 @@ resource "azurerm_container_app" "kibana" {
       cpu    = var.kibana_cpu
       memory = var.kibana_memory
       
-      # Usar endpoint público si está disponible (requiere elasticsearch_public_access = true)
+      # Usar endpoint público HTTPS si está disponible (requiere elasticsearch_public_access = true)
+      # Azure Container Apps expone servicios públicamente vía HTTPS en puerto 443
+      # El ingress mapea automáticamente HTTPS:443 -> HTTP:9200 internamente
       # Si no está disponible, intentar usar endpoint interno (puede no funcionar sin VNet integration)
       env {
         name  = "ELASTICSEARCH_HOSTS"
-        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "http://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
+        value = var.elasticsearch_public_access && azurerm_container_app.elasticsearch.ingress[0].fqdn != null && azurerm_container_app.elasticsearch.ingress[0].fqdn != "" ? "https://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : "http://${azurerm_container_app.elasticsearch.name}.${azurerm_container_app_environment.elk.default_domain}:9200"
       }
       env {
         name  = "SERVER_NAME"
