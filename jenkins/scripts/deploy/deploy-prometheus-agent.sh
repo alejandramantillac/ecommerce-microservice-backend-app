@@ -59,15 +59,6 @@ else
     echo "Warning: envsubst not found. Will use sed for variable substitution."
 fi
 
-# Validar que el endpoint no esté vacío
-if [ -z "$AZURE_INGESTION_ENDPOINT" ] || [ "$AZURE_INGESTION_ENDPOINT" = "" ]; then
-    echo "ERROR: AZURE_INGESTION_ENDPOINT is empty or not set!"
-    echo "Please check that the monitoring outputs were loaded correctly."
-    exit 1
-fi
-
-echo "✓ Validated endpoint: ${AZURE_INGESTION_ENDPOINT}"
-
 # Export variables for envsubst
 export NAMESPACE
 export ENVIRONMENT
@@ -79,71 +70,16 @@ export AZURE_CLIENT_SECRET
 # Function to substitute variables
 substitute_vars() {
     local file="$1"
-    
-    # Preferir envsubst si está disponible (más confiable para URLs con query parameters)
-    if command -v envsubst &> /dev/null; then
-        # Exportar variables para envsubst
-        # IMPORTANTE: La variable en el template es AZURE_PROMETHEUS_INGESTION_ENDPOINT
-        export AZURE_PROMETHEUS_INGESTION_ENDPOINT="$AZURE_INGESTION_ENDPOINT"
-        # Usar envsubst con lista explícita de variables (entre comillas simples para evitar expansión)
-        # Esto asegura que solo estas variables se sustituyan, preservando el resto del contenido
-        envsubst '$NAMESPACE $ENVIRONMENT $AZURE_PROMETHEUS_INGESTION_ENDPOINT $AZURE_CLIENT_ID $AZURE_TENANT_ID $AZURE_CLIENT_SECRET' < "$file"
+    if [ "$USE_ENVSUBST" = true ]; then
+        envsubst < "$file"
     else
-        # Fallback a Python si está disponible (mejor para URLs complejas)
-        if command -v python3 &> /dev/null; then
-            python3 <<PYTHON_SCRIPT
-import sys
-import os
-
-with open('$file', 'r') as f:
-    content = f.read()
-
-# Reemplazar variables de forma segura, preservando query parameters
-# Usar os.environ para evitar problemas con caracteres especiales
-namespace = '${NAMESPACE}'
-environment = '${ENVIRONMENT}'
-endpoint = '${AZURE_INGESTION_ENDPOINT}'
-client_id = '${AZURE_CLIENT_ID}'
-tenant_id = '${AZURE_TENANT_ID}'
-client_secret = '${AZURE_CLIENT_SECRET}'
-
-replacements = {
-    '\${NAMESPACE}': namespace,
-    '\${ENVIRONMENT}': environment,
-    '\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}': endpoint,
-    '\${AZURE_CLIENT_ID}': client_id,
-    '\${AZURE_TENANT_ID}': tenant_id,
-    '\${AZURE_CLIENT_SECRET}': client_secret
-}
-
-for pattern, replacement in replacements.items():
-    content = content.replace(pattern, replacement)
-
-sys.stdout.write(content)
-PYTHON_SCRIPT
-        elif command -v perl &> /dev/null; then
-            # Usar perl con escape adecuado para query parameters
-            # Escapar solo caracteres que causan problemas en regex, preservar = y ?
-            ESCAPED_ENDPOINT=$(printf '%s\n' "$AZURE_INGESTION_ENDPOINT" | perl -pe 's/([\\[\\]\.\*^\$\(\)\+\?\{\|\/])/\\$1/g')
-            ESCAPED_CLIENT_ID=$(printf '%s\n' "$AZURE_CLIENT_ID" | perl -pe 's/([\\[\\]\.\*^\$\(\)\+\?\{\|\/])/\\$1/g')
-            ESCAPED_TENANT_ID=$(printf '%s\n' "$AZURE_TENANT_ID" | perl -pe 's/([\\[\\]\.\*^\$\(\)\+\?\{\|\/])/\\$1/g')
-            ESCAPED_CLIENT_SECRET=$(printf '%s\n' "$AZURE_CLIENT_SECRET" | perl -pe 's/([\\[\\]\.\*^\$\(\)\+\?\{\|\/])/\\$1/g')
-            perl -pe "s|\\\$\{NAMESPACE\}|${NAMESPACE}|g; s|\\\$\{ENVIRONMENT\}|${ENVIRONMENT}|g; s|\\\$\{AZURE_PROMETHEUS_INGESTION_ENDPOINT\}|${ESCAPED_ENDPOINT}|g; s|\\\$\{AZURE_CLIENT_ID\}|${ESCAPED_CLIENT_ID}|g; s|\\\$\{AZURE_TENANT_ID\}|${ESCAPED_TENANT_ID}|g; s|\\\$\{AZURE_CLIENT_SECRET\}|${ESCAPED_CLIENT_SECRET}|g" "$file"
-        else
-            # Usar sed como último recurso - requiere escape cuidadoso
-            # Escapar caracteres especiales pero preservar = y ? para query parameters
-            ESCAPED_ENDPOINT=$(printf '%s\n' "$AZURE_INGESTION_ENDPOINT" | sed 's/[[\.*^$()+{|]/\\&/g' | sed 's|/|\\/|g')
-            ESCAPED_CLIENT_ID=$(printf '%s\n' "$AZURE_CLIENT_ID" | sed 's/[[\.*^$()+{|]/\\&/g' | sed 's|/|\\/|g')
-            ESCAPED_TENANT_ID=$(printf '%s\n' "$AZURE_TENANT_ID" | sed 's/[[\.*^$()+{|]/\\&/g' | sed 's|/|\\/|g')
-            ESCAPED_CLIENT_SECRET=$(printf '%s\n' "$AZURE_CLIENT_SECRET" | sed 's/[[\.*^$()+{|]/\\&/g' | sed 's|/|\\/|g')
-            sed -e "s|\${NAMESPACE}|${NAMESPACE}|g" \
-                -e "s|\${ENVIRONMENT}|${ENVIRONMENT}|g" \
-                -e "s|\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}|${ESCAPED_ENDPOINT}|g" \
-                -e "s|\${AZURE_CLIENT_ID}|${ESCAPED_CLIENT_ID}|g" \
-                -e "s|\${AZURE_TENANT_ID}|${ESCAPED_TENANT_ID}|g" \
-                -e "s|\${AZURE_CLIENT_SECRET}|${ESCAPED_CLIENT_SECRET}|g" \
-                "$file"
-        fi
+        sed -e "s/\${NAMESPACE}/${NAMESPACE}/g" \
+            -e "s/\${ENVIRONMENT}/${ENVIRONMENT}/g" \
+            -e "s|\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}|${AZURE_INGESTION_ENDPOINT}|g" \
+            -e "s/\${AZURE_CLIENT_ID}/${AZURE_CLIENT_ID}/g" \
+            -e "s/\${AZURE_TENANT_ID}/${AZURE_TENANT_ID}/g" \
+            -e "s/\${AZURE_CLIENT_SECRET}/${AZURE_CLIENT_SECRET}/g" \
+            "$file"
     fi
 }
 
@@ -162,61 +98,12 @@ echo "✓ Secret created/updated"
 # Step 2: Deploy Prometheus ConfigMap with remote_write
 echo ""
 echo "Step 2: Deploying Prometheus ConfigMap with remote_write..."
-# Verificar que la sustitución funciona correctamente
-TEMP_CONFIG=$(mktemp)
-substitute_vars k8s/monitoring/prometheus-config-remote-write.yaml > "$TEMP_CONFIG"
-# Verificar que la URL fue sustituida correctamente
-if grep -q '\${AZURE_PROMETHEUS_INGESTION_ENDPOINT}' "$TEMP_CONFIG"; then
-    echo "ERROR: Variable substitution failed. AZURE_PROMETHEUS_INGESTION_ENDPOINT not replaced in ConfigMap"
-    echo "Endpoint value: ${AZURE_INGESTION_ENDPOINT}"
-    echo "Debug: Showing remote_write section:"
-    grep -A 5 "remote_write" "$TEMP_CONFIG" || true
-    rm -f "$TEMP_CONFIG"
-    exit 1
-fi
-
-# Verificar que la URL contiene el query parameter api-version
-if ! grep -q "api-version=2021-11-01-preview" "$TEMP_CONFIG"; then
-    echo "WARNING: URL may be truncated. Expected api-version=2021-11-01-preview in endpoint"
-    echo "Debug: Showing remote_write URL:"
-    grep -A 2 "url:" "$TEMP_CONFIG" | head -3 || true
-    echo "Original endpoint: ${AZURE_INGESTION_ENDPOINT}"
-fi
-
-# Verificar que el query parameter completo está presente (si el endpoint lo incluye)
-if [[ "$AZURE_INGESTION_ENDPOINT" == *"api-version=2021-11-01-preview"* ]]; then
-    if ! grep -q "api-version=2021-11-01-preview" "$TEMP_CONFIG"; then
-        echo "ERROR: Query parameter 'api-version=2021-11-01-preview' was truncated during substitution"
-        echo "Original endpoint: ${AZURE_INGESTION_ENDPOINT}"
-        echo "Debug: Showing remote_write section:"
-        grep -A 1 "remote_write:" "$TEMP_CONFIG" | grep "url:" || true
-        rm -f "$TEMP_CONFIG"
-        exit 1
-    fi
-fi
-
-echo "✓ URL substitution verified"
-
-# Mostrar la URL que se va a usar (para debugging)
-echo "Debug: URL that will be used:"
-grep -A 1 "remote_write:" "$TEMP_CONFIG" | grep "url:" || true
-
-# Eliminar el ConfigMap existente si existe para forzar la actualización
-if kubectl --kubeconfig="$KCFG" get configmap prometheus-config -n "${NAMESPACE}" &>/dev/null; then
-    echo "Deleting existing ConfigMap to force update..."
-    kubectl --kubeconfig="$KCFG" delete configmap prometheus-config -n "${NAMESPACE}" || true
-    sleep 2
-fi
-
-# Aplicar el nuevo ConfigMap
-if kubectl --kubeconfig="$KCFG" apply -f "$TEMP_CONFIG"; then
+if substitute_vars k8s/monitoring/prometheus-config-remote-write.yaml | kubectl --kubeconfig="$KCFG" apply -f -; then
     echo "✓ ConfigMap deployed"
 else
     echo "✗ Failed to deploy ConfigMap"
-    rm -f "$TEMP_CONFIG"
     exit 1
 fi
-rm -f "$TEMP_CONFIG"
 
 # Step 3: Deploy Alert Rules ConfigMap (if exists)
 if [ -f "k8s/monitoring/prometheus-alerts-configmap.yaml" ]; then
