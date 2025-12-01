@@ -37,33 +37,14 @@ build/
 
 secret/**
 trivy-reports/
+tests/zap-reports/
+k8s/ingress/certs/
 
-# Performance test reports (generated files)
-test-*-report.html
-test-*-data*.csv
-performance-report.html
-performance-data*.csv
-stress-report.html
-stress-data*.csv
-spike-report.html
-spike-data*.csv
-endurance-report.html
-endurance-data*.csv
-
-# Sensitive files (keys, configs)
+# Sealed Secrets - Backups and sensitive files
+k8s/base/secrets/backups/
 *.pem
-kubeconfig*.yml
 *.key
-
-# Security test reports (OWASP ZAP)
-zap-reports/
-zap-*-report.*
-
-# Coverage reports (generated files)
-coverage-*/
-coverage-*.xml
-coverage-*.json
-coverage-*.html
-*.coverage
-.coverage
-htmlcov/
+sealed-secrets-public-key.pem
+*-secret.yaml
+!*-sealed.yaml
+!example-*.yaml

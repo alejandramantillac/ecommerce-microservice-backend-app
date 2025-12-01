@@ -29,6 +29,9 @@ spec:
         envFrom:
           - configMapRef:
               name: micro-config
+          - secretRef:
+              name: micro-secrets
+              optional: true
         env:
           - name: SERVICE_NAME
             value: ${SERVICE_NAME}

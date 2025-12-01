@@ -137,13 +137,11 @@ def getServicesList() {
                     nodePort: 30180
                 ],
                 staging: [
-                    type: 'LoadBalancer',
-                    externalPort: 9080,
+                    type: 'ClusterIP',
                     nodePort: 30180
                 ],
                 prod: [
-                    type: 'LoadBalancer',
-                    externalPort: 8080,
+                    type: 'NodePort',
                     nodePort: 30080
                 ]
             ],
@@ -175,7 +173,7 @@ def getServicesList() {
                     nodePort: 30941
                 ],
                 prod: [
-                    type: 'LoadBalancer',
+                    type: 'NodePort',
                     nodePort: 30942
                 ]
             ],
@@ -410,9 +408,9 @@ def getBusinessServices() {
     return getServicesByType('business')
 }
 
-def getMonitoringServices() {
+def getMonitoringServices(environment) {
     def services = getServicesList()
-    return services.findAll { it.name == 'zipkin' }
+    return services.findAll { it.name == 'zipkin' && environment == 'staging'}
 }
 
 def getServiceExposure(serviceName, environment) {
