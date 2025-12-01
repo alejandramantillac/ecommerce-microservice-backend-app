@@ -115,7 +115,7 @@ def deployToKubernetes(environment, namespace, registry, imageTag, changedServic
 
     def deployListInOrder = [
         commonVars.getCoreServices(),
-        commonVars.getMonitoringServices()
+        commonVars.getMonitoringServices(environment)
     ]
 
     deployListInOrder.each { group ->

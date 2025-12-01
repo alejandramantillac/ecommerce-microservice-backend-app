@@ -408,9 +408,9 @@ def getBusinessServices() {
     return getServicesByType('business')
 }
 
-def getMonitoringServices() {
+def getMonitoringServices(environment) {
     def services = getServicesList()
-    return services.findAll { it.name == 'zipkin' }
+    return services.findAll { it.name == 'zipkin' && environment == 'staging'}
 }
 
 def getServiceExposure(serviceName, environment) {
