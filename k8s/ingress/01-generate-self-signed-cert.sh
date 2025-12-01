@@ -42,12 +42,12 @@ openssl genrsa -out "${CERT_DIR}/${NAMESPACE}.key" 2048
 if [[ "$DOMAIN_OR_IP" =~ ^[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}\.[0-9]{1,3}$ ]]; then
     # It's an IP address
     echo "Detected IP address: ${DOMAIN_OR_IP}"
-    SUBJECT_ALT_NAME="IP:${DOMAIN_OR_IP}"
+    SUBJECT_ALT_NAME="IP.1 = ${DOMAIN_OR_IP}"
     CN="${DOMAIN_OR_IP}"
 else
     # It's a domain name
     echo "Detected domain name: ${DOMAIN_OR_IP}"
-    SUBJECT_ALT_NAME="DNS:${DOMAIN_OR_IP},DNS:*.${DOMAIN_OR_IP}"
+    SUBJECT_ALT_NAME="DNS.1 = ${DOMAIN_OR_IP}"$'\n'"DNS.2 = *.${DOMAIN_OR_IP}"
     CN="${DOMAIN_OR_IP}"
 fi
 
@@ -126,4 +126,3 @@ echo "  - Certificate files are in: ${CERT_DIR}/"
 echo ""
 echo "To apply: kubectl apply -f ${OUTPUT_FILE}"
 echo ""
-

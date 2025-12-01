@@ -418,6 +418,20 @@ def getServiceExposure(serviceName, environment) {
     return service?.exposure?.get(environment)
 }
 
+def getBusinessServices() {
+    return getServicesByType('business')
+}
+
+def getMonitoringServices(environment) {
+    def services = getServicesList()
+    return services.findAll { it.name == 'zipkin' && environment == 'staging'}
+}
+
+def getServiceExposure(serviceName, environment) {
+    def service = getServiceConfig(serviceName)
+    return service?.exposure?.get(environment)
+}
+
 // ========================================
 // Credentials & Configuration
 // ========================================
