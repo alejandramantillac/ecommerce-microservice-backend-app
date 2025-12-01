@@ -407,6 +407,9 @@ def setupIngressWithTls(environment, namespace, ingressIp) {
     }
     
     // Generate Ingress resource dynamically with the IP
+    // Use nip.io to convert IP to DNS name (Kubernetes Ingress requires DNS names, not IPs)
+    def hostName = "${ingressIp}.nip.io"
+    
     def ingressYaml = """
 apiVersion: networking.k8s.io/v1
 kind: Ingress
@@ -427,10 +430,10 @@ spec:
   ingressClassName: nginx
   tls:
   - hosts:
-    - ${ingressIp}
+    - ${hostName}
     secretName: tls-secret-${environment}
   rules:
-  - host: ${ingressIp}
+  - host: ${hostName}
     http:
       paths:
       - path: /
@@ -448,7 +451,7 @@ spec:
 ${ingressYaml}
 EOF
         kubectl --kubeconfig="\${KCFG}" apply -f /tmp/ingress-${environment}.yaml
-        echo "✓ Ingress configured with TLS for IP: ${ingressIp}"
+        echo "✓ Ingress configured with TLS for: ${hostName}"
     """
     
     echo ""
@@ -457,7 +460,8 @@ EOF
     echo "========================================="
     echo "Environment: ${environment}"
     echo "Ingress IP: ${ingressIp}"
-    echo "HTTPS URL: https://${ingressIp}/actuator/health"
+    echo "Ingress Hostname: ${hostName}"
+    echo "HTTPS URL: https://${hostName}/actuator/health"
     echo "========================================="
 }
 
