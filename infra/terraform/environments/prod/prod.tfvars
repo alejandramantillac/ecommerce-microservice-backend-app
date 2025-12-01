@@ -44,7 +44,7 @@ elasticsearch_replicas     = 1
 elasticsearch_cpu           = 1.0
 elasticsearch_memory        = "2Gi"
 elasticsearch_java_heap     = 1024
-elasticsearch_public_access = false  # Solo acceso interno desde AKS
+elasticsearch_public_access = true  # Solo acceso interno desde AKS
 
 logstash_replicas = 1
 logstash_cpu      = 0.5

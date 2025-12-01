@@ -4,7 +4,7 @@ terraform {
   required_providers {
     azurerm = {
       source  = "hashicorp/azurerm"
-      version = "~> 3.80"
+      version = ">= 3.80"  # Permitir versiones más recientes que soporten Grafana v11
     }
     time = {
       source  = "hashicorp/time"
