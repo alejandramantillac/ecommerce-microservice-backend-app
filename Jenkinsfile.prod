@@ -182,6 +182,32 @@ pipeline {
                 }
             }
         }
+
+        stage('Deploy to Staging') {
+            steps {
+                unstash 'workspace'
+                unstash 'kubeconfig'
+                withEnv(["KCFG=${env.PROD_KUBE_CONFIG_PATH}"]) {
+                    script {
+                        def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                        echo "========================================="
+                        echo "🚀 Deploying Release ${env.RELEASE_VERSION} to STAGING"
+                        echo "========================================="
+                        
+                        commonFunctions.deployToKubernetes(
+                            'staging',
+                            env.K8S_NAMESPACE_STAGING,
+                            env.REGISTRY,
+                            env.IMAGE_TAG,
+                            env.CHANGED_SERVICES
+                        )
+                        
+                        env.STAGING_DEPLOYS = env.SUCCESSFUL_DEPLOYS
+                        echo "✓ Staging deployment completed"
+                    }
+                }
+            }
+        }
         
         stage('Validate in Staging') {
             stages {
