@@ -173,7 +173,7 @@ def getServicesList() {
                     nodePort: 30941
                 ],
                 prod: [
-                    type: 'LoadBalancer',
+                    type: 'NodePort',
                     nodePort: 30942
                 ]
             ],

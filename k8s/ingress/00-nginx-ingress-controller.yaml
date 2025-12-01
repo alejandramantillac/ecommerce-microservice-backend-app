@@ -114,9 +114,7 @@ spec:
             - --controller-class=k8s.io/ingress-nginx
             - --ingress-class=nginx
             - --configmap=$(POD_NAMESPACE)/ingress-nginx-controller
-            - --validating-webhook=:8443
-            - --validating-webhook-certificate=/usr/local/certificates/cert
-            - --validating-webhook-key=/usr/local/certificates/key
+
           securityContext:
             capabilities:
               drop:
@@ -166,10 +164,7 @@ spec:
             - name: webhook
               containerPort: 8443
               protocol: TCP
-          volumeMounts:
-            - name: webhook-cert
-              mountPath: /usr/local/certificates/
-              readOnly: true
+
           resources:
             requests:
               cpu: 100m
@@ -178,10 +173,7 @@ spec:
         kubernetes.io/os: linux
       serviceAccountName: ingress-nginx
       terminationGracePeriodSeconds: 300
-      volumes:
-        - name: webhook-cert
-          secret:
-            secretName: ingress-nginx-admission
+
 ---
 apiVersion: networking.k8s.io/v1
 kind: IngressClass
