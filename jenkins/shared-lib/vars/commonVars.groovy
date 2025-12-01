@@ -137,11 +137,11 @@ def getServicesList() {
                     nodePort: 30180
                 ],
                 staging: [
-                    type: 'ClusterIP',
+                    type: 'LoadBalancer',
                     nodePort: 30180
                 ],
                 prod: [
-                    type: 'ClusterIP',
+                    type: 'LoadBalancer',
                     nodePort: 30080
                 ]
             ],
