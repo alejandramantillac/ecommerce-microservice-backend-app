@@ -167,9 +167,39 @@ pipeline {
                             cd infra/terraform/environments/${K8S_NAMESPACE_STAGING}
                             terraform version
                             terraform init -input=false
-                            terraform apply -input=false -auto-approve -var-file=${K8S_NAMESPACE_STAGING}.tfvars
+                            
+                            # Aplicar Terraform (puede fallar en Grafana por versión, pero creará otros recursos)
+                            terraform apply -input=false -auto-approve -var-file=${K8S_NAMESPACE_STAGING}.tfvars || true
+                            
+                            # Si Grafana falló, crearlo manualmente con Azure CLI
                             RG_NAME=$(terraform output -raw resource_group_name)
                             AKS_NAME=$(terraform output -raw aks_cluster_name)
+                            GRAFANA_NAME=$(terraform output -raw grafana_name 2>/dev/null || echo "ecom-stg-grafana")
+                            PROMETHEUS_WS_ID=$(terraform output -raw prometheus_workspace_id 2>/dev/null || echo "")
+                            
+                            # Verificar si Grafana existe, si no, crearlo
+                            if ! az grafana show --name "$GRAFANA_NAME" --resource-group "$RG_NAME" &>/dev/null; then
+                                echo "Creating Grafana manually with Azure CLI (workaround for version 11 requirement)..."
+                                chmod +x "${WORKSPACE}/jenkins/scripts/setup-grafana-manual.sh"
+                                "${WORKSPACE}/jenkins/scripts/setup-grafana-manual.sh" \
+                                    "$RG_NAME" \
+                                    "$GRAFANA_NAME" \
+                                    "$(terraform output -raw location 2>/dev/null || echo 'eastus2')" \
+                                    "$(grep grafana_sku ${K8S_NAMESPACE_STAGING}.tfvars | cut -d= -f2 | tr -d ' \"' || echo 'Essential')" \
+                                    "$PROMETHEUS_WS_ID"
+                                
+                                # Importar Grafana a Terraform
+                                echo "Importing Grafana to Terraform state..."
+                                SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+                                terraform import \
+                                    -var-file=${K8S_NAMESPACE_STAGING}.tfvars \
+                                    module.monitoring.azurerm_dashboard_grafana.grafana \
+                                    "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG_NAME}/providers/Microsoft.Dashboard/grafana/${GRAFANA_NAME}" || echo "Import may have failed, but Grafana is created"
+                            fi
+                            
+                            # Aplicar nuevamente para sincronizar el estado
+                            terraform apply -input=false -auto-approve -var-file=${K8S_NAMESPACE_STAGING}.tfvars
+                            
                             mkdir -p "${WORKSPACE}/.kube"
                             rm -f "${WORKSPACE}/.kube/${K8S_NAMESPACE_STAGING}-config"
                             az login --service-principal -u "$ARM_CLIENT_ID" -p "$ARM_CLIENT_SECRET" --tenant "$ARM_TENANT_ID" >/dev/null
@@ -183,6 +213,38 @@ pipeline {
             }
         }
         
+        stage('Get Monitoring Endpoints (Staging)') {
+            steps {
+                unstash 'workspace'
+                script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    echo "Retrieving monitoring endpoints from Terraform outputs..."
+                    
+                    // Verify and fix DCR stream configuration before getting endpoints
+                    commonFunctions.verifyAndFixDcrStream(env.K8S_NAMESPACE_STAGING)
+                    
+                    def monitoringOutputs = commonFunctions.getMonitoringOutputs(env.K8S_NAMESPACE_STAGING)
+                    def outputFile = commonFunctions.saveMonitoringOutputs(env.K8S_NAMESPACE_STAGING, monitoringOutputs)
+                    stash name: 'staging-monitoring-outputs', includes: ".monitoring-${env.K8S_NAMESPACE_STAGING}.env"
+                }
+            }
+        }
+
+        stage('Assign DCR Permissions (Staging)') {
+            steps {
+                unstash 'workspace'
+                script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    echo "Assigning Monitoring Metrics Publisher role to Service Principal on DCR..."
+                    withCredentials([
+                        string(credentialsId: 'ARM_CLIENT_ID', variable: 'ARM_CLIENT_ID')
+                    ]) {
+                        commonFunctions.assignDcrPermissions(env.K8S_NAMESPACE_STAGING, env.ARM_CLIENT_ID)
+                    }
+                }
+            }
+        }
+
         stage('Validate in Staging') {
             stages {
                 stage('Integration & E2E Tests') {
@@ -294,12 +356,31 @@ pipeline {
                 script {
                     def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                     echo "Retrieving monitoring endpoints from Terraform outputs..."
+                    
+                    // Verify and fix DCR stream configuration before getting endpoints
+                    commonFunctions.verifyAndFixDcrStream(env.K8S_NAMESPACE_PROD)
+                    
                     def monitoringOutputs = commonFunctions.getMonitoringOutputs(env.K8S_NAMESPACE_PROD)
                     def outputFile = commonFunctions.saveMonitoringOutputs(env.K8S_NAMESPACE_PROD, monitoringOutputs)
                     stash name: 'prod-monitoring-outputs', includes: ".monitoring-${env.K8S_NAMESPACE_PROD}.env"
                     env.PROMETHEUS_INGESTION_ENDPOINT = monitoringOutputs.prometheusIngestionEndpoint
                     env.PROMETHEUS_QUERY_ENDPOINT = monitoringOutputs.prometheusQueryEndpoint
                     env.GRAFANA_ENDPOINT = monitoringOutputs.grafanaEndpoint
+                }
+            }
+        }
+
+        stage('Assign DCR Permissions (Production)') {
+            steps {
+                unstash 'workspace'
+                script {
+                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
+                    echo "Assigning Monitoring Metrics Publisher role to Service Principal on DCR..."
+                    withCredentials([
+                        string(credentialsId: 'ARM_CLIENT_ID', variable: 'ARM_CLIENT_ID')
+                    ]) {
+                        commonFunctions.assignDcrPermissions(env.K8S_NAMESPACE_PROD, env.ARM_CLIENT_ID)
+                    }
                 }
             }
         }
@@ -341,25 +422,17 @@ pipeline {
                     def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                     def monitoringOutputs = commonFunctions.loadMonitoringOutputs(env.K8S_NAMESPACE_PROD)
                     
-                    // Intentar migrar dashboards si la credencial está disponible
-                    try {
-                        withCredentials([
-                            string(credentialsId: 'GRAFANA_API_KEY', variable: 'GRAFANA_API_KEY')
-                        ]) {
-                            echo "Migrating Grafana dashboards to Azure Managed Grafana..."
-                            commonFunctions.migrateGrafanaDashboards(
-                                monitoringOutputs.grafanaEndpoint,
-                                env.GRAFANA_API_KEY,
-                                monitoringOutputs.prometheusQueryEndpoint,
-                                'k8s/monitoring/grafana-dashboards'
-                            )
-                        }
-                    } catch (Exception e) {
-                        echo "⚠ Warning: Could not migrate Grafana dashboards - GRAFANA_API_KEY credential not found or migration failed"
-                        echo "You can manually migrate dashboards later or configure the GRAFANA_API_KEY credential in Jenkins"
-                        echo "Error: ${e.getMessage()}"
-                        // No fallar el pipeline por esto
-                    }
+                    // Obtener token de Grafana (espera automáticamente si no existe)
+                    def grafanaApiKey = commonFunctions.getGrafanaApiKey(env.K8S_NAMESPACE_PROD, monitoringOutputs.grafanaName)
+                    
+                    // Migrar dashboards
+                    commonFunctions.migrateGrafanaDashboards(
+                        monitoringOutputs.grafanaEndpoint,
+                        grafanaApiKey,
+                        monitoringOutputs.prometheusQueryEndpoint,
+                        'k8s/monitoring/grafana-dashboards',
+                        env.TARGET_ENVIRONMENT
+                    )
                 }
             }
         }
@@ -390,12 +463,14 @@ pipeline {
                     script {
                         def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                         def loggingOutputs = commonFunctions.loadLoggingOutputs(env.K8S_NAMESPACE_PROD)
-                        echo "Deploying Filebeat to send logs to Elasticsearch in Azure Container Apps..."
-                        echo "Elasticsearch Endpoint: ${loggingOutputs.elasticsearchInternalEndpoint}"
+                        echo "Deploying Filebeat to send logs to Elasticsearch..."
+                        echo "Elasticsearch Endpoint: ${loggingOutputs.elasticsearchEndpoint}"
                         commonFunctions.deployFilebeat(
                             env.K8S_NAMESPACE_PROD,
                             env.TARGET_ENVIRONMENT,
-                            loggingOutputs.elasticsearchInternalEndpoint
+                            loggingOutputs.logAnalyticsWorkspaceId,
+                            loggingOutputs.logAnalyticsCustomerId,
+                            loggingOutputs.logAnalyticsSharedKey
                         )
                     }
                 }
