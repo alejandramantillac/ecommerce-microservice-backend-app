@@ -217,7 +217,7 @@ pipeline {
             steps {
                 unstash 'workspace'
                 unstash 'kubeconfig'
-                withEnv(["KCFG=${env.PROD_KUBE_CONFIG_PATH}"]) {
+                withEnv(["KCFG=${env.STAGING_KUBE_CONFIG_PATH}"]) {
                     script {
                         def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
                         echo "========================================="
