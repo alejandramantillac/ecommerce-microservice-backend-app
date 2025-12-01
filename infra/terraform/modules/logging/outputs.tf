@@ -1,6 +1,6 @@
 output "elasticsearch_endpoint" {
   description = "Endpoint de Elasticsearch"
-  value       = azurerm_container_app.elasticsearch.ingress[0].fqdn != null ? "http://${azurerm_container_app.elasticsearch.ingress[0].fqdn}" : ""
+  value       = azurerm_container_app.elasticsearch.ingress[0].fqdn != null ? "https://${azurerm_container_app.elasticsearch.ingress[0].fqdn}:443" : ""
 }
 
 output "elasticsearch_internal_endpoint" {
@@ -10,7 +10,7 @@ output "elasticsearch_internal_endpoint" {
 
 output "kibana_endpoint" {
   description = "Endpoint de Kibana"
-  value       = azurerm_container_app.kibana.ingress[0].fqdn != null ? "http://${azurerm_container_app.kibana.ingress[0].fqdn}" : ""
+  value       = azurerm_container_app.kibana.ingress[0].fqdn != null ? "https://${azurerm_container_app.kibana.ingress[0].fqdn}:443" : ""
 }
 
 output "logstash_endpoint" {
