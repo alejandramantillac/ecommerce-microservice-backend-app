@@ -108,7 +108,7 @@ def deployToKubernetes(environment, namespace, registry, imageTag, changedServic
     applyConfigMap(environment, namespace)
 
     // Step 1.5: Setup Ingress Controller and TLS (before deploying services)
-    if (environment == 'staging' || environment == 'prod') {
+    if (environment == 'prod') {
         echo "Step 1.5: Setting up Ingress Controller and TLS..."
         setupIngressAndTls(environment, namespace)
     }
