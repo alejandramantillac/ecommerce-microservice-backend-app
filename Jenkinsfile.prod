@@ -74,11 +74,10 @@ pipeline {
             }
         }
 
-        stage('Provision Infrastructure (Terraform)') {
+        stage('Provision Production Infrastructure (Terraform)') {
             steps {
                 script {
-                    def commonFunctions = load 'jenkins/shared-lib/vars/commonFunctions.groovy'
-                    echo "Provisioning prod infrastructure via Terraform..."
+                    echo "Provisioning production infrastructure via Terraform..."
                     withCredentials([
                         string(credentialsId: 'ARM_CLIENT_ID', variable: 'ARM_CLIENT_ID'),
                         string(credentialsId: 'ARM_CLIENT_SECRET', variable: 'ARM_CLIENT_SECRET'),
@@ -87,51 +86,20 @@ pipeline {
                     ]) {
                         sh '''
                             set -e
-                            cd infra/terraform/environments/prod
-                            terraform version
+                            cd infra/terraform/environments/${K8S_NAMESPACE_PROD}
                             terraform init -input=false
-                            
-                            # Aplicar Terraform (puede fallar en Grafana por versión, pero creará otros recursos)
-                            terraform apply -input=false -auto-approve -var-file=prod.tfvars || true
-                            
-                            # Si Grafana falló, crearlo manualmente con Azure CLI
+                            terraform apply -input=false -auto-approve -var-file=${K8S_NAMESPACE_PROD}.tfvars
                             RG_NAME=$(terraform output -raw resource_group_name)
                             AKS_NAME=$(terraform output -raw aks_cluster_name)
-                            GRAFANA_NAME=$(terraform output -raw grafana_name 2>/dev/null || echo "ecom-prod-grafana")
-                            PROMETHEUS_WS_ID=$(terraform output -raw prometheus_workspace_id 2>/dev/null || echo "")
-                            
-                            # Verificar si Grafana existe, si no, crearlo
-                            if ! az grafana show --name "$GRAFANA_NAME" --resource-group "$RG_NAME" &>/dev/null; then
-                                echo "Creating Grafana manually with Azure CLI (workaround for version 11 requirement)..."
-                                chmod +x "${WORKSPACE}/jenkins/scripts/setup-grafana-manual.sh"
-                                "${WORKSPACE}/jenkins/scripts/setup-grafana-manual.sh" \
-                                    "$RG_NAME" \
-                                    "$GRAFANA_NAME" \
-                                    "$(terraform output -raw location 2>/dev/null || echo 'centralus')" \
-                                    "$(grep grafana_sku prod.tfvars | cut -d= -f2 | tr -d ' \"' || echo 'Essential')" \
-                                    "$PROMETHEUS_WS_ID"
-                                
-                                # Importar Grafana a Terraform
-                                echo "Importing Grafana to Terraform state..."
-                                SUBSCRIPTION_ID=$(az account show --query id -o tsv)
-                                terraform import \
-                                    -var-file=prod.tfvars \
-                                    module.monitoring.azurerm_dashboard_grafana.grafana \
-                                    "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG_NAME}/providers/Microsoft.Dashboard/grafana/${GRAFANA_NAME}" || echo "Import may have failed, but Grafana is created"
-                            fi
-                            
-                            # Aplicar nuevamente para sincronizar el estado
-                            terraform apply -input=false -auto-approve -var-file=prod.tfvars
-                            
                             mkdir -p "${WORKSPACE}/.kube"
-                            rm -f "${WORKSPACE}/.kube/${TARGET_ENVIRONMENT}-config"
+                            rm -f "${WORKSPACE}/.kube/${K8S_NAMESPACE_PROD}-config"
                             az login --service-principal -u "$ARM_CLIENT_ID" -p "$ARM_CLIENT_SECRET" --tenant "$ARM_TENANT_ID" >/dev/null
-                            az aks get-credentials --resource-group "$RG_NAME" --name "$AKS_NAME" --file "${WORKSPACE}/.kube/${TARGET_ENVIRONMENT}-config" --overwrite-existing
+                            az aks get-credentials --resource-group "$RG_NAME" --name "$AKS_NAME" --file "${WORKSPACE}/.kube/${K8S_NAMESPACE_PROD}-config" --overwrite-existing
                         '''
                     }
-                    env.KUBE_CONFIG_PATH = "${env.WORKSPACE}/.kube/${env.TARGET_ENVIRONMENT}-config"
-                    env.TF_STAGING_APPLIED = 'true'
-                    stash name: 'kubeconfig', includes: ".kube/${env.TARGET_ENVIRONMENT}-config"
+                    env.PROD_KUBE_CONFIG_PATH = "${env.WORKSPACE}/.kube/${K8S_NAMESPACE_PROD}-config"
+                    env.TF_PROD_APPLIED = 'true'
+                    stash name: 'prod-kubeconfig', includes: ".kube/${K8S_NAMESPACE_PROD}-config"
                 }
             }
         }
