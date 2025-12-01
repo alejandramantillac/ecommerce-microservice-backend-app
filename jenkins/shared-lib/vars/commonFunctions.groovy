@@ -161,6 +161,92 @@ def deployToKubernetes(environment, namespace, registry, imageTag, changedServic
     }
 }
 
+/**
+ * Provision infrastructure using Terraform for a given environment
+ * Handles Terraform initialization, application, and Grafana workarounds
+ * @param environment Environment name (staging/prod)
+ * @param armClientId Azure AD client ID
+ * @param armClientSecret Azure AD client secret
+ * @param armSubscriptionId Azure subscription ID
+ * @param armTenantId Azure AD tenant ID
+ * @return Map with kubeconfig path and infrastructure details
+ */
+def provisionInfrastructureWithTerraform(environment, armClientId, armClientSecret, armSubscriptionId, armTenantId) {
+    echo "========================================="
+    echo "Provisioning ${environment} infrastructure via Terraform"
+    echo "========================================="
+    
+    def envDir = environment == 'staging' ? 'staging' : 'prod'
+    def tfvarsFile = "${envDir}.tfvars"
+    
+    withCredentials([
+        string(credentialsId: 'ARM_CLIENT_ID', variable: 'ARM_CLIENT_ID'),
+        string(credentialsId: 'ARM_CLIENT_SECRET', variable: 'ARM_CLIENT_SECRET'),
+        string(credentialsId: 'ARM_SUBSCRIPTION_ID', variable: 'ARM_SUBSCRIPTION_ID'),
+        string(credentialsId: 'ARM_TENANT_ID', variable: 'ARM_TENANT_ID')
+    ]) {
+        sh '''
+            set -e
+            cd infra/terraform/environments/''' + envDir + '''
+            terraform version
+            terraform init -input=false
+            
+            # Apply Terraform (may fail on Grafana due to version, but will create other resources)
+            terraform apply -input=false -auto-approve -var-file=''' + tfvarsFile + ''' || true
+            
+            # If Grafana failed, create it manually with Azure CLI
+            RG_NAME=$(terraform output -raw resource_group_name)
+            AKS_NAME=$(terraform output -raw aks_cluster_name)
+            GRAFANA_NAME=$(terraform output -raw grafana_name 2>/dev/null || echo "ecom-''' + envDir + '''-grafana")
+            PROMETHEUS_WS_ID=$(terraform output -raw prometheus_workspace_id 2>/dev/null || echo "")
+            
+            # Verify if Grafana exists, if not, create it
+            if ! az grafana show --name "$GRAFANA_NAME" --resource-group "$RG_NAME" &>/dev/null; then
+                echo "Creating Grafana manually with Azure CLI (workaround for version 11 requirement)..."
+                chmod +x "${WORKSPACE}/jenkins/scripts/setup-grafana-manual.sh"
+                "${WORKSPACE}/jenkins/scripts/setup-grafana-manual.sh" \
+                    "$RG_NAME" \
+                    "$GRAFANA_NAME" \
+                    "$(terraform output -raw location 2>/dev/null || echo 'eastus2')" \
+                    "$(grep grafana_sku ''' + tfvarsFile + ''' | cut -d= -f2 | tr -d ' \"' || echo 'Essential')" \
+                    "$PROMETHEUS_WS_ID"
+                
+                # Import Grafana to Terraform
+                echo "Importing Grafana to Terraform state..."
+                SUBSCRIPTION_ID=$(az account show --query id -o tsv)
+                terraform import \
+                    -var-file=''' + tfvarsFile + ''' \
+                    module.monitoring.azurerm_dashboard_grafana.grafana \
+                    "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG_NAME}/providers/Microsoft.Dashboard/grafana/${GRAFANA_NAME}" || echo "Import may have failed, but Grafana is created"
+            fi
+            
+            # Apply again to sync state
+            terraform apply -input=false -auto-approve -var-file=''' + tfvarsFile + '''
+            
+            mkdir -p "${WORKSPACE}/.kube"
+            rm -f "${WORKSPACE}/.kube/''' + environment + '''-config"
+            az login --service-principal -u "$ARM_CLIENT_ID" -p "$ARM_CLIENT_SECRET" --tenant "$ARM_TENANT_ID" >/dev/null
+            az aks get-credentials --resource-group "$RG_NAME" --name "$AKS_NAME" --file "${WORKSPACE}/.kube/''' + environment + '''-config" --overwrite-existing
+        '''
+    }
+    
+    def kubeconfigPath = "${env.WORKSPACE}/.kube/${environment}-config"
+    env.KUBE_CONFIG_PATH = kubeconfigPath
+    
+    // Stash kubeconfig for use in other stages
+    stash name: "kubeconfig-${environment}", includes: ".kube/${environment}-config"
+    
+    echo "✓ Infrastructure provisioned successfully"
+    echo "Kubeconfig: ${kubeconfigPath}"
+    echo "========================================="
+    
+    return [
+        kubeconfigPath: kubeconfigPath,
+        environment: environment,
+        tfvarsFile: tfvarsFile
+    ]
+}
+
 def ensureNamespace(namespace) {
     sh """
         kubectl --kubeconfig="\${KCFG}" get ns ${namespace} >/dev/null 2>&1 || \
