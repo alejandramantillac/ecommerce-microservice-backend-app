@@ -66,16 +66,6 @@ if [ -z "$AZURE_INGESTION_ENDPOINT" ] || [ "$AZURE_INGESTION_ENDPOINT" = "" ]; t
     exit 1
 fi
 
-# Validar que el endpoint tenga el formato correcto (debe empezar con https://)
-if [[ ! "$AZURE_INGESTION_ENDPOINT" =~ ^https?:// ]]; then
-    echo "ERROR: AZURE_INGESTION_ENDPOINT must start with http:// or https://"
-    echo "Current value: ${AZURE_INGESTION_ENDPOINT}"
-    exit 1
-fi
-
-# Asegurar que el endpoint no termine con /
-AZURE_INGESTION_ENDPOINT=$(echo "$AZURE_INGESTION_ENDPOINT" | sed 's|/$||')
-
 echo "✓ Validated endpoint: ${AZURE_INGESTION_ENDPOINT}"
 
 # Export variables for envsubst
