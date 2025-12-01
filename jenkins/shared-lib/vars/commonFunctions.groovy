@@ -533,7 +533,7 @@ def loadMonitoringOutputs(envNamespace) {
     }
     
     def ingestionEndpoint = sh(
-        script: "grep PROMETHEUS_INGESTION_ENDPOINT '${outputFile}' | cut -d= -f2",
+        script: "grep PROMETHEUS_INGESTION_ENDPOINT '${outputFile}'",
         returnStdout: true
     ).trim()
     
