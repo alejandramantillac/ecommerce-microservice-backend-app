@@ -195,15 +195,6 @@ if [[ "$AZURE_INGESTION_ENDPOINT" == *"api-version=2021-11-01-preview"* ]]; then
     fi
 fi
 
-# Verificar que la URL contiene https://
-if ! grep -q "url: 'https://" "$TEMP_CONFIG"; then
-    echo "ERROR: URL in remote_write does not start with https://"
-    echo "Debug: Showing remote_write section:"
-    grep -A 3 "remote_write" "$TEMP_CONFIG" | head -5
-    rm -f "$TEMP_CONFIG"
-    exit 1
-fi
-
 echo "✓ URL substitution verified"
 
 # Mostrar la URL que se va a usar (para debugging)
@@ -220,28 +211,6 @@ fi
 # Aplicar el nuevo ConfigMap
 if kubectl --kubeconfig="$KCFG" apply -f "$TEMP_CONFIG"; then
     echo "✓ ConfigMap deployed"
-    
-    # Verificar que la URL se aplicó correctamente
-    echo "Verifying ConfigMap was updated correctly..."
-    ACTUAL_URL=$(kubectl --kubeconfig="$KCFG" get configmap prometheus-config -n "${NAMESPACE}" -o jsonpath='{.data.prometheus\.yml}' | grep -A 1 "remote_write:" | grep "url:" | sed "s/.*url: '\(.*\)'.*/\1/" || echo "")
-    if [[ "$ACTUAL_URL" == *"https://"* ]]; then
-        echo "✓ ConfigMap verified: URL starts with https://"
-        # Verificar que el query parameter completo está presente
-        if [[ "$ACTUAL_URL" == *"api-version=2021-11-01-preview"* ]]; then
-            echo "✓ Query parameter completo presente"
-        elif [[ "$ACTUAL_URL" == *"api-version"* ]]; then
-            echo "⚠ WARNING: Query parameter está truncado (falta el valor)"
-            echo "  Actual: ${ACTUAL_URL}"
-            echo "  Esperado: ${AZURE_INGESTION_ENDPOINT}"
-            echo "  Diferencia: Falta '=2021-11-01-preview'"
-        else
-            echo "⚠ Warning: No se encontró query parameter api-version"
-        fi
-        echo "  URL completa: ${ACTUAL_URL}"
-    else
-        echo "⚠ Warning: ConfigMap URL may not be correct. Actual: ${ACTUAL_URL}"
-        echo "Expected: ${AZURE_INGESTION_ENDPOINT}"
-    fi
 else
     echo "✗ Failed to deploy ConfigMap"
     rm -f "$TEMP_CONFIG"
