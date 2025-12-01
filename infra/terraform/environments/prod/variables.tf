@@ -185,7 +185,7 @@ variable "db_enable_ha" {
 variable "grafana_sku" {
   description = "SKU de Azure Managed Grafana (Standard o Essential)"
   type        = string
-  default     = "Standard"
+  default     = "Essential"
 }
 
 variable "grafana_public_access" {
