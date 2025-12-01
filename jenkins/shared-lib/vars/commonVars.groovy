@@ -141,7 +141,7 @@ def getServicesList() {
                     nodePort: 30180
                 ],
                 prod: [
-                    type: 'NodePort',
+                    type: 'ClusterIP',
                     nodePort: 30080
                 ]
             ],

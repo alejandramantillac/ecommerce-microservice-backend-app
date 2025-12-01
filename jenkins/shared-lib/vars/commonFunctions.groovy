@@ -142,7 +142,7 @@ def deployToKubernetes(environment, namespace, registry, imageTag, changedServic
     }
 
     // Step 5: Verify Ingress configuration (after all services are deployed)
-    if (environment == 'staging' || environment == 'prod') {
+    if (environment == 'prod') {
         echo "Step 5: Verifying Ingress configuration..."
         def ingressIp = getIngressControllerIp()
         if (ingressIp) {
