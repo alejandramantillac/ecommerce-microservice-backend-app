@@ -108,14 +108,14 @@ pipeline {
                                     "$RG_NAME" \
                                     "$GRAFANA_NAME" \
                                     "$(terraform output -raw location 2>/dev/null || echo 'centralus')" \
-                                    "$(grep grafana_sku staging.tfvars | cut -d= -f2 | tr -d ' \"' || echo 'Essential')" \
+                                    "$(grep grafana_sku prod.tfvars | cut -d= -f2 | tr -d ' \"' || echo 'Essential')" \
                                     "$PROMETHEUS_WS_ID"
                                 
                                 # Importar Grafana a Terraform
                                 echo "Importing Grafana to Terraform state..."
                                 SUBSCRIPTION_ID=$(az account show --query id -o tsv)
                                 terraform import \
-                                    -var-file=staging.tfvars \
+                                    -var-file=prod.tfvars \
                                     module.monitoring.azurerm_dashboard_grafana.grafana \
                                     "/subscriptions/${SUBSCRIPTION_ID}/resourceGroups/${RG_NAME}/providers/Microsoft.Dashboard/grafana/${GRAFANA_NAME}" || echo "Import may have failed, but Grafana is created"
                             fi
